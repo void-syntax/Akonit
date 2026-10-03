@@ -1,0 +1,104 @@
+"""npm registry search - new fast-growing developer packages with real downloads."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+from app.core.logging import get_logger
+from app.models.enums import SourceType
+from app.pipeline.collectors.base import (
+    FetchContext,
+    FetchResult,
+    RawEvent,
+    SourceAdapter,
+    SourceUnavailable,
+    Strategy,
+)
+from app.pipeline.collectors.registry import register_source, run_strategy_cascade
+
+logger = get_logger(__name__)
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+class NpmSearchStrategy(Strategy):
+    name = "registry_search"
+
+    async def fetch(self, client: Any, ctx: FetchContext) -> list[RawEvent]:
+        terms = ctx.keywords[:4] if ctx.keywords else ["ai", "agent", "openai"]
+        events: list[RawEvent] = []
+        for term in terms:
+            url = (
+                "https://registry.npmjs.org/-/v1/search"
+                f"?text={term}&size=25&quality=popularity"
+            )
+            try:
+                data = await client.get_json(url)
+            except SourceUnavailable as exc:
+                logger.debug("npm search %r failed: %s", term, exc)
+                continue
+
+            for rank, entry in enumerate(data.get("objects") or [], start=1):
+                pkg = entry.get("package") or {}
+                name = pkg.get("name")
+                if not name:
+                    continue
+                downloads = float((entry.get("downloads") or {}).get("monthly") or 0)
+                events.append(
+                    RawEvent(
+                        source_id="npm",
+                        external_id=f"npm:{name}",
+                        title=name,
+                        url=pkg.get("links", {}).get("npm")
+                        or f"https://www.npmjs.com/package/{name}",
+                        description=(pkg.get("description") or "")[:400],
+                        activity=downloads,
+                        activity_metric="monthly_downloads",
+                        category="package",
+                        hashtags=pkg.get("keywords") or [],
+                        published_at=_parse_iso(pkg.get("date")),
+                        metadata={
+                            "monthly_downloads": downloads,
+                            "weekly_downloads": (entry.get("downloads") or {}).get(
+                                "weekly"
+                            ),
+                            "dependents": entry.get("dependents"),
+                            "search_score": entry.get("searchScore"),
+                            "version": pkg.get("version"),
+                            "rank": rank,
+                            "strategy": "registry_search",
+                        },
+                    )
+                )
+            if events:
+                break
+
+        if not events:
+            raise SourceUnavailable("npm search returned no packages")
+        return events[: ctx.limit]
+
+
+@register_source
+class NpmAdapter(SourceAdapter):
+    source_id = "npm"
+    name = "npm"
+    type = SourceType.DEVELOPER
+    description = (
+        "New and fast-growing developer packages with real monthly download "
+        "counts from the public registry search."
+    )
+    capabilities = ["new_software", "dev_tools", "ai_packages", "downloads"]
+    priority = 27
+    collect_interval_seconds = 3600
+    strategies = [NpmSearchStrategy()]
+
+    async def fetch(self, ctx: FetchContext, client: Any) -> FetchResult:
+        return await run_strategy_cascade(self, ctx, client)

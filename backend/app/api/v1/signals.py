@@ -1,0 +1,339 @@
+"""Signal feed, detail and history endpoints."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
+
+from app.api.deps import CurrentUser, SessionDep
+from app.models import (
+    IgnoredSignal,
+    RadarSignal,
+    SavedSignal,
+    Signal,
+    SignalSnapshot,
+)
+from app.models.enums import SignalStatus
+from app.schemas.api import SignalDetail, SignalOut, SignalPage
+
+router = APIRouter(prefix="/signals", tags=["signals"])
+
+
+def _apply_user_flags(
+    page: list[Signal], saved_ids: set[str], ignored_ids: set[str]
+) -> list[SignalOut]:
+    return [
+        SignalOut(
+            **{
+                field: getattr(signal, field)
+                for field in SignalOut.model_fields
+                if hasattr(signal, field)
+            },
+            is_saved=signal.id in saved_ids,
+            is_ignored=signal.id in ignored_ids,
+        )
+        for signal in page
+    ]
+
+
+async def _user_sets(
+    session: SessionDep, user_id: str, signal_ids: list[str]
+) -> tuple[set[str], set[str]]:
+    if not signal_ids:
+        return set(), set()
+    saved = (
+        (
+            await session.execute(
+                select(SavedSignal.signal_id).where(
+                    SavedSignal.user_id == user_id,
+                    SavedSignal.signal_id.in_(signal_ids),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    ignored = (
+        (
+            await session.execute(
+                select(IgnoredSignal.signal_id).where(
+                    IgnoredSignal.user_id == user_id,
+                    IgnoredSignal.signal_id.in_(signal_ids),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return set(saved), set(ignored)
+
+
+@router.get("", response_model=SignalPage)
+async def list_signals(
+    session: SessionDep,
+    user: CurrentUser,
+    tab: str = Query(default="all"),
+    status_filter: list[SignalStatus] | None = Query(default=None, alias="status"),
+    country: list[str] | None = Query(default=None),
+    source: list[str] | None = Query(default=None),
+    radar_id: str | None = None,
+    tag: list[str] | None = Query(default=None),
+    keyword: str | None = None,
+    min_strength: float | None = None,
+    max_age_minutes: float | None = None,
+    limit: int = Query(default=30, le=100),
+    offset: int = 0,
+):
+    statement = select(Signal)
+
+    if tab == "rising":
+        statement = statement.where(
+            Signal.status.in_([SignalStatus.RISING, SignalStatus.BREAKOUT])
+        )
+    elif tab == "breakout":
+        statement = statement.where(Signal.status == SignalStatus.BREAKOUT)
+    elif tab == "new":
+        statement = statement.where(Signal.status == SignalStatus.NEW)
+    elif tab == "saved":
+        statement = statement.join(
+            SavedSignal, SavedSignal.signal_id == Signal.id
+        ).where(SavedSignal.user_id == user.id)
+
+    if status_filter:
+        statement = statement.where(Signal.status.in_(status_filter))
+    if country:
+        statement = statement.where(Signal.country_code.in_([c.upper() for c in country]))
+    if source:
+        statement = statement.where(Signal.source_id.in_(source))
+    if min_strength is not None:
+        statement = statement.where(Signal.strength >= min_strength)
+    if max_age_minutes is not None:
+        cutoff = datetime.now(UTC) - timedelta(minutes=max_age_minutes)
+        statement = statement.where(Signal.first_seen_at >= cutoff)
+    if keyword:
+        pattern = f"%{keyword.lower()}%"
+        statement = statement.where(
+            func.lower(Signal.title).like(pattern)
+            | func.lower(Signal.description).like(pattern)
+        )
+    if radar_id:
+        statement = statement.join(
+            RadarSignal, RadarSignal.signal_id == Signal.id
+        ).where(RadarSignal.radar_id == radar_id)
+
+    total = (
+        await session.execute(select(func.count()).select_from(statement.subquery()))
+    ).scalar_one()
+    rows = (
+        (
+            await session.execute(
+                statement.order_by(
+                    Signal.strength.desc(), Signal.first_seen_at.desc()
+                )
+                .limit(limit)
+                .offset(offset)
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+
+    saved_ids, ignored_ids = await _user_sets(session, user.id, [s.id for s in rows])
+
+    items = _apply_user_flags(list(rows), saved_ids, ignored_ids)
+    if tag:
+        wanted = {t.lower() for t in tag}
+        items = [
+            item
+            for item in items
+            if wanted & {k.lower() for k in (item.keywords or [])}
+        ]
+
+    return SignalPage(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/{signal_id}", response_model=SignalDetail)
+async def signal_detail(signal_id: str, session: SessionDep, user: CurrentUser):
+    signal = (
+        (
+            await session.execute(
+                select(Signal)
+                .where(Signal.id == signal_id)
+                .options(selectinload(Signal.snapshots))
+            )
+        )
+        .scalar_one_or_none()
+    )
+    if signal is None:
+        raise HTTPException(status_code=404, detail="Signal not found")
+
+    saved_ids, ignored_ids = await _user_sets(session, user.id, [signal.id])
+    base = SignalOut(
+        **{
+            field: getattr(signal, field)
+            for field in SignalOut.model_fields
+            if hasattr(signal, field)
+        },
+        is_saved=signal.id in saved_ids,
+        is_ignored=signal.id in ignored_ids,
+    )
+    return SignalDetail(
+        **base.model_dump(),
+        source_metadata=signal.source_metadata or {},
+        snapshots=[
+            {
+                "captured_at": s.captured_at,
+                "activity": s.activity,
+                "previous_activity": s.previous_activity,
+                "growth": s.growth,
+                "acceleration": s.acceleration,
+                "strength": s.strength,
+                "status": s.status,
+                "rank": s.rank,
+            }
+            for s in signal.snapshots
+        ],
+    )
+
+
+@router.get("/{signal_id}/history")
+async def signal_history(
+    signal_id: str,
+    session: SessionDep,
+    hours: int = Query(default=168, le=720),
+):
+    """Chart data derived from the append-only snapshot table."""
+    since = datetime.now(UTC) - timedelta(hours=hours)
+    rows = (
+        (
+            await session.execute(
+                select(SignalSnapshot)
+                .where(
+                    SignalSnapshot.signal_id == signal_id,
+                    SignalSnapshot.captured_at >= since,
+                )
+                .order_by(SignalSnapshot.captured_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "signal_id": signal_id,
+        "points": [
+            {
+                "t": s.captured_at,
+                "activity": s.activity,
+                "growth": s.growth,
+                "acceleration": s.acceleration,
+                "strength": s.strength,
+                "status": s.status.value,
+            }
+            for s in rows
+        ],
+    }
+
+
+@router.post("/{signal_id}/save", response_model=SignalOut)
+async def save_signal(signal_id: str, session: SessionDep, user: CurrentUser):
+    signal = await _get_signal(session, signal_id)
+    existing = (
+        await session.execute(
+            select(SavedSignal).where(
+                SavedSignal.user_id == user.id,
+                SavedSignal.signal_id == signal_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        session.add(SavedSignal(user_id=user.id, signal_id=signal_id))
+        await session.commit()
+    saved_ids, ignored_ids = await _user_sets(session, user.id, [signal_id])
+    return _apply_user_flags([signal], saved_ids, ignored_ids)[0]
+
+
+@router.delete("/{signal_id}/save", status_code=status.HTTP_204_NO_CONTENT)
+async def unsave_signal(signal_id: str, session: SessionDep, user: CurrentUser):
+    row = (
+        await session.execute(
+            select(SavedSignal).where(
+                SavedSignal.user_id == user.id,
+                SavedSignal.signal_id == signal_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row:
+        await session.delete(row)
+        await session.commit()
+
+
+@router.post("/{signal_id}/mute", response_model=SignalOut)
+async def mute_signal(signal_id: str, session: SessionDep, user: CurrentUser):
+    signal = await _get_signal(session, signal_id)
+    existing = (
+        await session.execute(
+            select(IgnoredSignal).where(
+                IgnoredSignal.user_id == user.id,
+                IgnoredSignal.signal_id == signal_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        session.add(
+            IgnoredSignal(user_id=user.id, signal_id=signal_id, reason="muted")
+        )
+        await session.commit()
+    saved_ids, ignored_ids = await _user_sets(session, user.id, [signal_id])
+    return _apply_user_flags([signal], saved_ids, ignored_ids)[0]
+
+
+@router.delete("/{signal_id}/mute", status_code=status.HTTP_204_NO_CONTENT)
+async def unmute_signal(signal_id: str, session: SessionDep, user: CurrentUser):
+    row = (
+        await session.execute(
+            select(IgnoredSignal).where(
+                IgnoredSignal.user_id == user.id,
+                IgnoredSignal.signal_id == signal_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row:
+        await session.delete(row)
+        await session.commit()
+
+
+async def _get_signal(session: SessionDep, signal_id: str) -> Signal:
+    signal = (
+        await session.execute(select(Signal).where(Signal.id == signal_id))
+    ).scalar_one_or_none()
+    if signal is None:
+        raise HTTPException(status_code=404, detail="Signal not found")
+    return signal
+
+
+saved_router = APIRouter(prefix="/saved", tags=["saved"])
+
+
+@saved_router.get("", response_model=list[SignalOut])
+async def list_saved(session: SessionDep, user: CurrentUser):
+    signals = (
+        (
+            await session.execute(
+                select(Signal)
+                .join(SavedSignal, SavedSignal.signal_id == Signal.id)
+                .where(SavedSignal.user_id == user.id)
+                .order_by(SavedSignal.created_at.desc())
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    saved_ids, ignored_ids = await _user_sets(
+        session, user.id, [s.id for s in signals]
+    )
+    return _apply_user_flags(list(signals), saved_ids, ignored_ids)

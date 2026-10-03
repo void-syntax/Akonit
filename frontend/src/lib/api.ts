@@ -1,0 +1,213 @@
+import type {
+  ConditionGroup,
+  ConditionOption,
+  Country,
+  CustomTag,
+  Radar,
+  Signal,
+  SignalDetail,
+  SignalPage,
+  SourceHealthReport,
+  SourceInfo,
+  Tag,
+} from "./types";
+
+export const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE = `${API_URL}/api/v1`;
+
+let accessToken: string | null = null;
+
+export function setToken(token: string | null) {
+  accessToken = token;
+  if (typeof window !== "undefined") {
+    if (token) window.localStorage.setItem("sr_token", token);
+    else window.localStorage.removeItem("sr_token");
+  }
+}
+
+export function getToken(): string | null {
+  if (accessToken) return accessToken;
+  if (typeof window !== "undefined") {
+    accessToken = window.localStorage.getItem("sr_token");
+  }
+  return accessToken;
+}
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (options.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers,
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  if (response.status === 204) return undefined as T;
+
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+
+  if (!response.ok) {
+    const detail =
+      typeof data?.detail === "string"
+        ? data.detail
+        : Array.isArray(data?.detail)
+          ? data.detail.map((d: { msg: string }) => d.msg).join("; ")
+          : `Request failed (${response.status})`;
+    throw new ApiError(response.status, detail);
+  }
+  return data as T;
+}
+
+function qs(params: Record<string, unknown>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) {
+      if (value.length) search.set(key, value.join(","));
+    } else {
+      search.set(key, String(value));
+    }
+  }
+  const str = search.toString();
+  return str ? `?${str}` : "";
+}
+
+export interface FeedQuery {
+  tab?: "all" | "new" | "rising" | "breakout" | "saved";
+  country?: string[];
+  source?: string[];
+  tag?: string[];
+  keyword?: string;
+  min_strength?: number;
+  max_age_minutes?: number;
+  radar_id?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export const api = {
+  register: (email: string, password: string) =>
+    request<{ access_token: string }>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+
+  login: (email: string, password: string) =>
+    request<{ access_token: string }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+
+  me: () => request<{ id: string; email: string }>("/auth/me"),
+
+  profile: () => request<Record<string, unknown>>("/auth/profile"),
+
+  updateProfile: (payload: Record<string, unknown>) =>
+    request<Record<string, unknown>>("/auth/profile", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  countries: (q?: string, supportedOnly = false) =>
+    request<Country[]>(
+      `/countries${qs({ q, supported_only: supportedOnly || undefined })}`,
+    ),
+
+  sources: () => request<SourceInfo[]>("/sources"),
+
+  sourceHealth: () => request<SourceHealthReport>("/system/source-health"),
+
+  tags: (category?: string) => request<Tag[]>(`/tags${qs({ category })}`),
+
+  tagCategories: () =>
+    request<{ category: string; count: number }[]>("/tags/categories"),
+
+  conditionTypes: () => request<ConditionOption[]>("/condition-types"),
+
+  signals: (query: FeedQuery = {}) =>
+    request<SignalPage>(`/signals${qs(query as Record<string, unknown>)}`),
+
+  signal: (id: string) => request<SignalDetail>(`/signals/${id}`),
+
+  history: (id: string) =>
+    request<{ signal_id: string; points: Record<string, unknown>[] }>(
+      `/signals/${id}/history`,
+    ),
+
+  save: (id: string) => request<Signal>(`/signals/${id}/save`, { method: "POST" }),
+
+  unsave: (id: string) => request<void>(`/signals/${id}/save`, { method: "DELETE" }),
+
+  mute: (id: string) => request<Signal>(`/signals/${id}/mute`, { method: "POST" }),
+
+  unmute: (id: string) =>
+    request<void>(`/signals/${id}/mute`, { method: "DELETE" }),
+
+  saved: () => request<Signal[]>("/saved"),
+
+  radars: () => request<Radar[]>("/radars"),
+
+  createRadar: (payload: Record<string, unknown>) =>
+    request<Radar>("/radars", { method: "POST", body: JSON.stringify(payload) }),
+
+  updateRadar: (id: string, payload: Record<string, unknown>) =>
+    request<Radar>(`/radars/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteRadar: (id: string) =>
+    request<void>(`/radars/${id}`, { method: "DELETE" }),
+
+  radarConditions: (id: string) =>
+    request<{ radar_id: string; ast: ConditionGroup; threshold: number }>(
+      `/radars/${id}/conditions`,
+    ),
+
+  previewConditions: (conditions: ConditionGroup) =>
+    request<{ matched: number; items: Signal[] }>("/radars/preview", {
+      method: "POST",
+      body: JSON.stringify({ conditions }),
+    }),
+
+  runRadar: (id: string) =>
+    request<{ evaluated: number; matched: number }>(`/radars/${id}/run`, {
+      method: "POST",
+    }),
+
+  customTags: () => request<CustomTag[]>("/custom-tags"),
+
+  createCustomTag: (payload: Record<string, unknown>) =>
+    request<CustomTag>("/custom-tags", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCustomTag: (id: string) =>
+    request<void>(`/custom-tags/${id}`, { method: "DELETE" }),
+
+  pushPublicKey: () =>
+    request<{ public_key: string }>("/notifications/push/public-key"),
+
+  collectNow: (countries?: string) =>
+    request<Record<string, unknown>>(`/system/collect${qs({ countries })}`, {
+      method: "POST",
+    }),
+};

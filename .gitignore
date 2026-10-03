@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Databases
+*.db
+*.sqlite3
+
+# Env
+.env
+.env.local
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# Logs & verification artefacts
+*.log
+*.err
+backend/run*.txt
+backend/e2e*.txt
+backend/*_report.txt
+backend/short.txt
+backend/exp.txt
+backend/tail.txt
+backend/syntax_report.txt
+backend/testout.txt
+frontend/tsout.txt
+frontend/tsclean.txt
+frontend/build*.txt
+frontend/web_srv.*
+frontend/scripts/
+
+# OS
+.DS_Store
+Thumbs.db

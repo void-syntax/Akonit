@@ -1,0 +1,59 @@
+﻿python : Traceback (most recent 
+call last):
+At line:1 char:74
++ ... 
+$env:PYTHONIOENCODING='utf-8'; 
+python -m tools.check_api 2>&1 | 
+Out-F ...
++                                  
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotS 
+   pecified: (Traceback (most rec  
+  ent call last)::String) [], Re   
+ moteException
+    + FullyQualifiedErrorId : Nati 
+   veCommandError
+ 
+  File "<frozen runpy>", line 198, 
+in _run_module_as_main
+  File "<frozen runpy>", line 88, 
+in _run_code
+  File "C:\Users\User\Desktop\Proje
+ct\backend\tools\check_api.py", 
+line 216, in <module>
+    raise 
+SystemExit(asyncio.run(main()))
+                     
+^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApp
+s\PythonSoftwareFoundation.Python.3
+.12_3.12.2800.0_x64__qbz5n2kfra8p0\
+Lib\asyncio\runners.py", line 195, 
+in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApp
+s\PythonSoftwareFoundation.Python.3
+.12_3.12.2800.0_x64__qbz5n2kfra8p0\
+Lib\asyncio\runners.py", line 118, 
+in run
+    return 
+self._loop.run_until_complete(task)
+           
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApp
+s\PythonSoftwareFoundation.Python.3
+.12_3.12.2800.0_x64__qbz5n2kfra8p0\
+Lib\asyncio\base_events.py", line 
+691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\Proje
+ct\backend\tools\check_api.py", 
+line 173, in main
+    headers = {"Authorization": 
+f"Bearer 
+{reg.json()['access_token']}"}
+                                   
+       ~~~~~~~~~~^^^^^^^^^^^^^^^^
+KeyError: 'access_token'
