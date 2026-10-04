@@ -29,6 +29,24 @@ function toggleInList(list: string[], value: string): string[] {
     : [...list, value];
 }
 
+/**
+ * The server sends the VAPID key as unpadded url-safe base64, but the Push API
+ * wants raw bytes.
+ */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const normalised = (base64String + padding)
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  const raw = window.atob(normalised);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) {
+    output[i] = raw.charCodeAt(i);
+  }
+  return output;
+}
+
 export default function SettingsPage() {
   const { email, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -84,21 +102,41 @@ export default function SettingsPage() {
       return;
     }
     try {
+      // A VAPID key is mandatory: browsers reject a subscription without one.
+      const { public_key: vapidKey } = await api.pushPublicKey();
+      if (!vapidKey) {
+        setError(
+          "Push is not configured on the server. Set VAPID_PUBLIC_KEY and " +
+            "VAPID_PRIVATE_KEY in backend/.env (generate them with " +
+            "`python -m tools.gen_vapid`).",
+        );
+        return;
+      }
+
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         setError("Browser blocked notifications for this site.");
         return;
       }
+
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
       });
-      await api.subscribePush(
-        subscription.toJSON() as {
-          endpoint: string;
-          keys: Record<string, string>;
-        },
-      );
+
+      const json = subscription.toJSON() as {
+        endpoint?: string;
+        keys?: Record<string, string>;
+      };
+      if (!json.endpoint) {
+        throw new Error("browser returned a subscription without an endpoint");
+      }
+
+      await api.subscribePush({
+        endpoint: json.endpoint,
+        keys: json.keys ?? {},
+      });
       setPushState("on");
     } catch (err) {
       setError(

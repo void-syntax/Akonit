@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
 import { AppShell } from "@/components/AppShell";
+import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 
 import "./globals.css";
 
@@ -26,6 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <ServiceWorkerRegistrar />
         <AppShell>{children}</AppShell>
       </body>
     </html>
