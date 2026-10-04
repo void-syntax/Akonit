@@ -29,6 +29,7 @@ from app.pipeline.normalization.normalizer import (
     simhash,
     slugify,
 )
+from app.services.retention import expiry_for
 
 logger = get_logger(__name__)
 
@@ -332,6 +333,10 @@ async def _recompute(session: AsyncSession, signal: Signal) -> None:
 
     signal.growth = round(metrics.growth, 2)
     signal.velocity = round(metrics.velocity, 2)
+    # Expiry is set once, at creation, and never moved: a signal that keeps
+    # growing for a week is still a week-old signal.
+    if signal.expires_at is None:
+        signal.expires_at = expiry_for(signal.first_seen_at)
     signal.acceleration = (
         round(metrics.acceleration, 2) if metrics.has_acceleration else 0.0
     )

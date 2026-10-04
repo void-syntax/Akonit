@@ -16,6 +16,7 @@ from app.services.pipeline_service import (
     run_collection_cycle,
 )
 from app.services.radar_service import match_batch
+from app.services.retention import run_cleanup
 
 logger = get_logger("worker.tasks")
 
@@ -75,6 +76,15 @@ async def run_notification_task(session: AsyncSession) -> dict:
 async def refresh_metrics_task(session: AsyncSession) -> int:
     """Recompute growth/acceleration/strength from stored snapshots."""
     return await refresh_signal_metrics(session)
+
+
+async def cleanup_task(session: AsyncSession) -> dict:
+    """Retention pass: drop expired unsaved signals and the raw fetch log.
+
+    Runs on its own schedule so the database stays small without the feed
+    slowing down.
+    """
+    return await run_cleanup(session)
 
 
 async def active_countries(session: AsyncSession) -> list[str]:
