@@ -1,0 +1,79 @@
+name: Collect signals
+
+# This is what makes the radar run 24/7: GitHub runs this on a cron, so data
+# keeps flowing even when no machine of ours is switched on.
+on:
+  schedule:
+    # Every 20 minutes (cron granularity is 5 minutes, but :00 is busiest).
+    - cron: "7,27,47 * * * *"
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Run radar matching and notifications too"
+        type: boolean
+        default: true
+
+concurrency:
+  group: collect-signals
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Collect, detect, match, notify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+        working-directory: backend
+
+      - name: Apply migrations
+        run: alembic upgrade head
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Seed reference data
+        run: python -m tools.seed_reference
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Collect cycle
+        run: python -m tools.collect_once
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ""
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          COLLECT_INTERVAL_SECONDS: "900"
+
+      - name: Match radars and deliver notifications
+        if: ${{ inputs.full == false || github.event_name == 'schedule' }}
+        run: python -m tools.notify_once
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+
+      - name: Summary
+        if: always()
+        run: echo "collection cycle finished"
