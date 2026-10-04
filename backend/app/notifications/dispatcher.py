@@ -46,6 +46,19 @@ FREQUENCY_DELAY = {
 }
 
 
+def aware(value: datetime | None) -> datetime | None:
+    """SQLite hands back naive datetimes while `now` is UTC-aware.
+
+    Comparing the two raises TypeError, so every timestamp read from the
+    database goes through here first.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 async def notify_matches(
     session: AsyncSession,
     *,
@@ -75,7 +88,7 @@ async def notify_matches(
             continue
 
         delay = FREQUENCY_DELAY.get(radar.notification_frequency, timedelta(0))
-        last = radar.last_notified_at or EPOCH
+        last = aware(radar.last_notified_at) or EPOCH
         if last + delay > now:
             continue
 
