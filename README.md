@@ -87,28 +87,123 @@ all derived from real history.
 
 ## Quick start
 
-### With Docker
+### Locally, no Docker (SQLite)
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+cp ../.env.example .env          # DATABASE_URL defaults to SQLite
+uvicorn app.main:app --reload          # API on :8000
+python -m app.workers.schedule         # 24/7 worker, separate process
+```
+
+```bash
+cd frontend
+npm install
+npm run dev                            # web on :3000
+```
+
+### With Docker (Postgres + Redis)
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-- web: http://localhost:3000
-- api docs: http://localhost:8000/docs
-- worker + beat run automatically
+This starts five services: `db`, `redis`, `api`, `worker` and `web`. The worker
+runs the pipeline on a schedule; see [Staying live 24/7](#staying-live-247).
 
-### Without Docker
+---
+
+## Staying live 24/7
+
+There are two ways to keep the radar collecting, and they are not
+interchangeable.
+
+### Option A — long-running worker (self-hosted)
+
+`python -m app.workers.schedule` runs forever and is what `docker compose`
+starts for you. It schedules four jobs:
+
+| Job | Default interval | What it does |
+|-----|------------------|--------------|
+| `collect` | `COLLECT_INTERVAL_SECONDS` (900) | fetch → normalize → dedup → detect |
+| `match` | 5 min | evaluate signals against every radar |
+| `notify` | 1 min | queue and deliver due notifications |
+| `metrics` | `SNAPSHOT_INTERVAL_SECONDS` (900) | recompute growth/strength from snapshots |
+
+Graceful shutdown on SIGTERM/SIGINT, `max_instances=1` so a slow tick is never
+overlapped, and `coalesce=True` so missed ticks do not pile up.
+
+### Option B — cron runs (serverless / no machine)
+
+When you cannot keep a process alive — your laptop is off, or you deploy to a
+platform without a worker — GitHub Actions runs one finite cycle instead.
+`.github/workflows/collect.yml` does this on a 20-minute cron:
+
+```bash
+python -m tools.seed_reference     # idempotent
+python -m tools.collect_once       # one collect pass, prints JSON
+python -m tools.notify_once        # match radars + deliver notifications
+```
+
+Each tool is a one-shot command designed to exit, which is exactly what a cron
+runner needs. Both write a JSON summary so failures are visible in the run log.
+
+> **Honest limitation:** Option A only runs while the machine is on. Option B is
+> the only one that collects while nothing of yours is switched on.
+
+### Database migrations
+
+Schema changes go through Alembic. SQLite databases created before the
+product-settings fields are upgraded in place by `app/db/migrate.py` on startup.
 
 ```bash
 cd backend
-pip install -r requirements.txt
-cp .env.example .env          # DATABASE_URL defaults to SQLite
-uvicorn app.main:app --reload          # API
-python -m app.workers.schedule         # 24/7 worker
+alembic upgrade head        # apply
+alembic revision --autogenerate -m "describe change"
 ```
 
+---
+
+## Continuous integration
+
+Two workflows run from this repository.
+
+| Workflow | Trigger | What it does |
+|----------|---------|--------------|
+| `test.yml` | push, pull request | backend tests against Postgres, `alembic check`, `tsc`, `next build` |
+| `collect.yml` | cron every 20 min | migrations, seed, one collect cycle, radar matching, notifications |
+
+To let `collect.yml` run, add these repository secrets under
+**Settings → Secrets and variables → Actions**:
+
+| Secret | Required | Purpose |
+|--------|----------|---------|
+| `DATABASE_URL` | yes | `postgresql+asyncpg://USER:PASSWORD@HOST:5432/DB` |
+| `SECRET_KEY` | yes | JWT signing |
+| `GITHUB_TOKEN` | no | raises the GitHub limit 60 → 5000 req/h |
+| `HF_TOKEN` | no | private Hub models |
+| `TELEGRAM_BOT_TOKEN` | no | Telegram notifications |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | no | web push |
+
+`collect.yml` can also be triggered by hand (**Run workflow**) with a
+`full` toggle for collect-only runs.
+
+### Using Supabase as the database
+
+Create the schema once, then point `DATABASE_URL` at it:
+
 ```bash
+cd backend
+python -m tools.dump_schema        # prints the full Postgres DDL
+alembic upgrade head               # or apply the DDL directly
+```
+
+Row Level Security should stay **enabled** on every table: the application
+connects over PostgreSQL directly, while the anon/authenticated PostgREST roles
+must not be able to read the data.
+
 ---
 
 ## Radars

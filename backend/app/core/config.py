@@ -91,9 +91,6 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
-    def source_flag(self, name: str) -> bool:
-        return bool(getattr(self, f"enable_{name}", False))
-
     def public_dict(self) -> dict[str, Any]:
         safe = {}
         for key, value in self.model_dump().items():
