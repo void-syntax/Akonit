@@ -36,6 +36,18 @@ jobs:
         run: pip install -r requirements.txt
         working-directory: backend
 
+      - name: Resolve SECRET_KEY
+        # Falls back to a per-run random value when the repo secret is absent,
+        # so collection works even before the secret is configured. Nothing
+        # signed in a short-lived run is reused elsewhere.
+        run: |
+          if [ -n "${{ secrets.SECRET_KEY }}" ]; then
+            echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> "$GITHUB_ENV"
+          else
+            echo "SECRET_KEY=$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" >> "$GITHUB_ENV"
+            echo "::warning::SECRET_KEY secret not set, using a per-run value"
+          fi
+
       - name: Apply migrations
         run: alembic upgrade head
         working-directory: backend
@@ -54,7 +66,6 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           REDIS_URL: ""
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -68,7 +79,6 @@ jobs:
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
