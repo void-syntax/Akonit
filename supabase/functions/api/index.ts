@@ -36,6 +36,21 @@ const SIGNAL_COLUMNS = `
 
 const ACTIVE = "NEW, RISING, BREAKOUT";
 
+/**
+ * Prefix segments that may sit in front of the real route.
+ *
+ * The Supabase gateway forwards `/functions/v1/<slug>/<rest>` to the function
+ * as `/<slug>/<rest>`, and the frontend appends `/api/v1` to its configured
+ * base URL. Both can stack, so strip repeatedly rather than once.
+ */
+const PREFIXES = new Set(["functions", "v1", "api"]);
+
+function stripPrefix(seg: string[]): string[] {
+  let out = seg;
+  while (out.length > 0 && PREFIXES.has(out[0])) out = out.slice(1);
+  return out;
+}
+
 Deno.serve(async (request: Request): Promise<Response> => {
   if (request.method === "OPTIONS") return preflight();
 
@@ -59,10 +74,7 @@ async function route(
   path: string[],
   p: Record<string, string>,
 ): Promise<Response> {
-  // Strip the leading "api" and "v1" so the function can be mounted under them.
-  let seg = path;
-  if (seg[0] === "api") seg = seg.slice(1);
-  if (seg[0] === "v1") seg = seg.slice(1);
+  const seg = stripPrefix(path);
 
   if (seg.length === 0 || seg[0] === "health") {
     return json({ ok: true, service: "signal-radar-api" });
