@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.core.config import settings
-from app.models import NotificationDelivery, NotificationPreference
+from app.models import NotificationDelivery, NotificationPreference, UserProfile
 from app.models.enums import DeliveryStatus, NotificationChannel
 from app.schemas.api import ORMModel
 from datetime import datetime

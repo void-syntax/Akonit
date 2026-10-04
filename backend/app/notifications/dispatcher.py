@@ -35,6 +35,9 @@ from app.notifications.webpush import send_web_push
 
 logger = get_logger(__name__)
 
+# Sentinel for radars that have never notified: everything is due immediately.
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
 FREQUENCY_DELAY = {
     NotificationFrequency.INSTANT: timedelta(0),
     NotificationFrequency.EVERY_15_MIN: timedelta(minutes=15),
@@ -98,6 +101,7 @@ async def notify_matches(
     await session.commit()
     if queued:
         logger.info("queued %d notifications", queued)
+    return queued
 async def flush_deliveries(session: AsyncSession, limit: int = 50) -> dict:
     """Send everything that is due. Failures are recorded, never fatal."""
     now = datetime.now(UTC)
