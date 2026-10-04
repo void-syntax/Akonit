@@ -22,6 +22,7 @@ from app.schemas.api import RadarCreate, RadarOut, RadarUpdate, SignalOut
 from app.services.radar_service import (
     RadarView,
     _persist_conditions,
+    cond_value,
     create_radar,
     groups_to_ast,
     match_signal_to_radars,
@@ -263,6 +264,110 @@ async def run_now(radar_id: str, session: SessionDep, user: CurrentUser):
         outcomes = await match_signal_to_radars(session, signal, user_ids=[user.id])
         matched += sum(1 for o in outcomes if o.radar_id == radar.id)
     return {"radar_id": radar.id, "evaluated": len(signals), "matched": matched}
+
+
+@router.get("/{radar_id}/summary", response_model=dict)
+async def radar_summary(radar_id: str, session: SessionDep, user: CurrentUser):
+    """Human-readable conditions, e.g. 'South Korea + TikTok + Growth > 100%'."""
+    radar = await _load_radar(session, user.id, radar_id)
+    groups = (
+        (
+            await session.execute(
+                select(RadarConditionGroup)
+                .where(RadarConditionGroup.radar_id == radar.id)
+                .options(selectinload(RadarConditionGroup.conditions))
+                .order_by(RadarConditionGroup.position)
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    return {
+        "radar_id": radar.id,
+        "parts": summarize_radar(groups),
+        "threshold": radar.signal_threshold,
+        "frequency": radar.notification_frequency.value,
+    }
+
+
+COUNTRY_NAMES: dict[str, str] = {
+    "KR": "South Korea", "JP": "Japan", "US": "United States",
+    "GB": "United Kingdom", "CN": "China", "TR": "Turkey",
+    "AE": "UAE", "AZ": "Azerbaijan", "BR": "Brazil", "IN": "India",
+    "DE": "Germany", "FR": "France", "ES": "Spain", "IT": "Italy",
+    "MX": "Mexico", "CA": "Canada", "AU": "Australia", "RU": "Russia",
+}
+
+SOURCE_NAMES: dict[str, str] = {
+    "tiktok": "TikTok", "youtube": "YouTube", "instagram": "Instagram",
+    "x_trends": "X", "reddit": "Reddit", "google_trends": "Google Trends",
+    "google_news_trends": "Google News", "github": "GitHub",
+    "huggingface": "Hugging Face", "producthunt": "Product Hunt",
+    "hackernews": "Hacker News", "npm": "npm", "devto": "DEV",
+    "lobsters": "Lobsters", "stackoverflow": "Stack Overflow",
+}
+
+OPERATOR_TEXT = {
+    "GT": ">", "GTE": "≥", "LT": "<", "LTE": "≤",
+    "IN": "is", "NOT_IN": "is not", "EQ": "=", "CONTAINS": "contains",
+}
+
+
+def summarize_radar(groups) -> list[str]:
+    """Turn condition rows into plain sentences the UI can render directly."""
+    parts: list[str] = []
+    tag_names: list[str] = []
+
+    for group in groups:
+        pieces: list[str] = []
+        for cond in group.conditions:
+            value = cond_value(cond)
+            kind = cond.condition_type.value
+            operator = OPERATOR_TEXT.get(cond.operator.value, cond.operator.value)
+
+            if kind == "COUNTRY":
+                codes = [str(c).upper() for c in value] if isinstance(value, list) else [str(value).upper()]
+                labels = [COUNTRY_NAMES.get(c, c) for c in codes]
+                pieces.append(f"{'Country' if cond.operator.value != 'NOT_IN' else 'Not country'} {' / '.join(labels)}")
+            elif kind == "SOURCE":
+                ids = value if isinstance(value, list) else [value]
+                labels = [SOURCE_NAMES.get(str(s), str(s)) for s in ids]
+                pieces.append(f"{'Source' if cond.operator.value != 'NOT_IN' else 'Not source'} {' / '.join(labels)}")
+            elif kind == "TAG":
+                names = value if isinstance(value, list) else [value]
+                pretty = " / ".join(str(n).replace("-", " ").title() for n in names)
+                if cond.operator.value == "NOT_IN":
+                    pieces.append(f"Exclude {pretty}")
+                else:
+                    tag_names.extend(str(n) for n in names)
+            elif kind == "GROWTH":
+                pieces.append(f"Growth {operator} {round(float(value or 0))}%")
+            elif kind == "STRENGTH":
+                pieces.append(f"Strength {operator} {round(float(value or 0))}")
+            elif kind == "ACTIVITY":
+                pieces.append(f"Activity {operator} {int(float(value or 0))}")
+            elif kind == "AGE":
+                unit = (cond.unit or "minutes").rstrip("s")
+                pieces.append(f"Age {operator} {round(float(value or 0))} {unit}")
+            elif kind == "STATUS":
+                names = value if isinstance(value, list) else [value]
+                pieces.append("Status " + " / ".join(str(n).title() for n in names))
+            elif kind == "KEYWORD":
+                words = value if isinstance(value, list) else [value]
+                pieces.append(f"{'Exclude' if cond.operator.value == 'NOT_IN' else 'Keyword'} {' / '.join(str(w) for w in words)}")
+
+        if not pieces:
+            continue
+        joiner = " + " if group.join_type.value == "AND" else " or "
+        text = joiner.join(pieces)
+        parts.append(f"NOT ({text})" if group.is_exclude else text)
+
+    if tag_names:
+        parts.insert(0, "Tags " + " / ".join(tag_names))
+    if not parts:
+        parts.append("All signals")
+    return parts
 
 
 @router.post("/preview")

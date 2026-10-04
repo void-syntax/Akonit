@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -22,45 +23,43 @@ const FREQUENCIES: { value: NotificationFrequency; label: string }[] = [
   { value: "DAILY_DIGEST", label: "Daily digest" },
 ];
 
-interface Suggestion {
+const TEMPLATES: {
   emoji: string;
   name: string;
   countries: string[];
   sources: string[];
   tags: string[];
-}
-
-const SUGGESTIONS: Suggestion[] = [
+}[] = [
   {
-    emoji: "🇰🇷",
+    emoji: "\u{1F1F0}\u{1F1F7}",
     name: "Korea Makeup",
     countries: ["KR"],
     sources: ["tiktok", "youtube"],
     tags: ["makeup", "skincare"],
   },
   {
-    emoji: "🇺🇸",
+    emoji: "\u{1F1FA}\u{1F1F8}",
     name: "USA Pranks",
     countries: ["US"],
     sources: ["tiktok", "x_trends", "reddit"],
     tags: ["pranks", "tiktok-pranks"],
   },
   {
-    emoji: "🤖",
+    emoji: "\u{1F916}",
     name: "Free AI",
     countries: [],
     sources: ["github", "huggingface"],
     tags: ["free-ai", "ai-agents", "open-source-ai"],
   },
   {
-    emoji: "💰",
+    emoji: "\u{1F4B0}",
     name: "Money",
     countries: [],
     sources: ["reddit", "tiktok"],
     tags: ["side-hustle", "making-money"],
   },
   {
-    emoji: "🔥",
+    emoji: "\u{1F525}",
     name: "Viral Products",
     countries: [],
     sources: ["tiktok", "producthunt"],
@@ -68,11 +67,7 @@ const SUGGESTIONS: Suggestion[] = [
   },
 ];
 
-const EMPTY: ConditionGroup = {
-  op: "AND",
-  children: [],
-  is_exclude: false,
-};
+const EMPTY: ConditionGroup = { op: "AND", children: [], is_exclude: false };
 
 export default function NewRadarPage() {
   const router = useRouter();
@@ -80,7 +75,7 @@ export default function NewRadarPage() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [name, setName] = useState("");
-  const [emoji, setEmoji] = useState("🎯");
+  const [emoji, setEmoji] = useState("\u{1F3AF}");
   const [threshold, setThreshold] = useState(0);
   const [frequency, setFrequency] =
     useState<NotificationFrequency>("INSTANT");
@@ -99,23 +94,28 @@ export default function NewRadarPage() {
           api.tags(),
         ]);
         setCountries(c);
-        setSources(s);
+        setSources(s.filter((item) => item.status !== "OFFLINE"));
         setTags(t);
       } catch {
-        /* the builder still works without options */
+        /* the builder still works without option lists */
       }
     })();
   }, []);
 
-  function applySuggestion(s: Suggestion) {
-    setName(s.name);
-    setEmoji(s.emoji);
+  function applyTemplate(template: (typeof TEMPLATES)[number]) {
+    setName(template.name);
+    setEmoji(template.emoji);
     const children: (ConditionGroup | Condition)[] = [];
-    if (s.countries.length) {
-      children.push({ type: "COUNTRY", operator: "IN", value: s.countries });
+    if (template.countries.length) {
+      children.push({
+        type: "COUNTRY",
+        operator: "IN",
+        value: template.countries,
+      });
     }
-    children.push({ type: "SOURCE", operator: "IN", value: s.sources });
-    children.push({ type: "TAG", operator: "IN", value: s.tags });
+    children.push({ type: "SOURCE", operator: "IN", value: template.sources });
+    children.push({ type: "TAG", operator: "IN", value: template.tags });
+    children.push({ type: "GROWTH", operator: "GT", value: 100 });
     setConditions({ op: "AND", children, is_exclude: false });
   }
 
@@ -149,28 +149,35 @@ export default function NewRadarPage() {
     }
   }
 
-return (
+  return (
     <>
-      <div className="section-title">CREATE RADAR</div>
+      <div className="row" style={{ marginBottom: "var(--s4)" }}>
+        <Link className="btn btn-sm btn-ghost" href="/radars">
+          ← Radars
+        </Link>
+      </div>
 
-      <div className="builder" style={{ marginBottom: 12 }}>
+      <div className="section-title">Create radar</div>
+
+      <div className="panel">
         <span className="field-label">Start from a template</span>
         <div className="row" style={{ marginTop: 8 }}>
-          {SUGGESTIONS.map((s) => (
+          {TEMPLATES.map((template) => (
             <button
-              key={s.name}
-              className="btn btn-sm"
-              onClick={() => applySuggestion(s)}
+              key={template.name}
+              className="chip"
+              type="button"
+              onClick={() => applyTemplate(template)}
             >
-              {s.emoji} {s.name}
+              {template.emoji} {template.name}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="builder">
-        <div className="grid-2" style={{ marginBottom: 12 }}>
-          <div>
+      <div className="panel">
+        <div className="grid-2" style={{ marginBottom: "var(--s3)" }}>
+          <div className="field">
             <label className="field-label" htmlFor="rname">
               Radar name
             </label>
@@ -181,7 +188,7 @@ return (
               placeholder="Korea Makeup"
             />
           </div>
-          <div>
+          <div className="field">
             <label className="field-label" htmlFor="remoji">
               Emoji
             </label>
@@ -200,16 +207,17 @@ return (
           countries={countries}
           sources={sources}
           tags={tags}
+          previewCount={preview}
         />
       </div>
 
-      <div className="builder" style={{ marginTop: 12 }}>
-        <div className="section-title" style={{ margin: "0 0 10px" }}>
-          NOTIFICATIONS
+      <div className="panel">
+        <div className="section-title" style={{ marginTop: 0 }}>
+          Notifications
         </div>
 
         <div className="grid-2">
-          <div>
+          <div className="field">
             <label className="field-label" htmlFor="freq">
               Frequency
             </label>
@@ -220,69 +228,67 @@ return (
                 setFrequency(e.target.value as NotificationFrequency)
               }
             >
-              {FREQUENCIES.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
+              {FREQUENCIES.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
                 </option>
               ))}
             </select>
           </div>
-          <div>
+          <div className="field">
             <label className="field-label" htmlFor="thr">
               Signal strength threshold
             </label>
-            <input
-              id="thr"
-              type="number"
-              min={0}
-              max={100}
-              value={threshold}
-              onChange={(e) => setThreshold(Number(e.target.value) || 0)}
-            />
+            <div className="slider-row">
+              <input
+                id="thr"
+                type="range"
+                min={0}
+                max={100}
+                value={threshold}
+                onChange={(e) => setThreshold(Number(e.target.value))}
+              />
+              <span className="slider-value">{threshold}</span>
+            </div>
           </div>
         </div>
 
-        <span className="field-label" style={{ marginTop: 12 }}>
-          Channels
-        </span>
+        <span className="field-label">Channels</span>
         <div className="row" style={{ marginTop: 8 }}>
           {[
-            { id: "WEB_PUSH", label: "🔔 Browser push" },
-            { id: "TELEGRAM", label: "✈️ Telegram" },
-          ].map((c) => (
+            { id: "WEB_PUSH", label: "\u{1F514} Browser push" },
+            { id: "TELEGRAM", label: "\u{2708} Telegram" },
+          ].map((channel) => (
             <button
-              key={c.id}
-              className="btn btn-sm"
-              data-active={channels.includes(c.id)}
+              key={channel.id}
+              className="chip"
+              type="button"
+              data-active={channels.includes(channel.id)}
               onClick={() =>
                 setChannels((prev) =>
-                  prev.includes(c.id)
-                    ? prev.filter((x) => x !== c.id)
-                    : [...prev, c.id],
+                  prev.includes(channel.id)
+                    ? prev.filter((x) => x !== channel.id)
+                    : [...prev, channel.id],
                 )
               }
             >
-              {c.label}
+              {channel.label}
             </button>
           ))}
         </div>
       </div>
 
-      {error && (
-        <div className="error" style={{ marginTop: 12 }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="alert alert-error">{error}</div>}
 
-      <div className="row" style={{ marginTop: 16 }}>
-        <button className="btn" onClick={runPreview}>
+      <div className="row">
+        <button className="btn" onClick={runPreview} type="button">
           Preview matches
         </button>
         {preview !== null && (
-          <span className="muted">
+          <span className="muted text-sm">
             {preview < 0
               ? "preview failed"
-              : `${preview} signals would match right now`}
+              : `${preview} signals match right now`}
           </span>
         )}
         <div className="spacer" />
@@ -290,8 +296,9 @@ return (
           className="btn btn-primary"
           onClick={submit}
           disabled={busy || name.trim().length < 2}
+          type="button"
         >
-          {busy ? "Creating…" : "Create Radar"}
+          {busy ? "Creating…" : "Create radar"}
         </button>
       </div>
     </>

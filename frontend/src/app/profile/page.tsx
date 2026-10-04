@@ -3,171 +3,142 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { NEW_TAG, TagList, TagSheet, tagToDraft } from "@/components/TagManager";
+import { PlusIcon } from "@/components/icons";
 import { api } from "@/lib/api";
-import type { CustomTag } from "@/lib/types";
+import type {
+  Country,
+  CustomTag,
+  CustomTagDraft,
+  SourceInfo,
+} from "@/lib/types";
 import { useAuth } from "@/store/auth";
 
-function split(value: string): string[] {
-  return value
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-}
-
-const EMPTY_FORM = {
-  name: "",
-  keywords: "",
-  hashtags: "",
-  country_codes: "",
-  source_ids: "",
-  excludes: "",
-};
-
-const FIELDS = [
-  {
-    id: "ctkw",
-    label: "Keywords (comma separated)",
-    key: "keywords" as const,
-    placeholder: "korean makeup, k-beauty, glass skin",
-  },
-  { id: "ctht", label: "Hashtags", key: "hashtags" as const, placeholder: "#kbeauty, #glassskin" },
-  { id: "ctex", label: "Excludes", key: "excludes" as const, placeholder: "cosplay" },
-  { id: "ctcc", label: "Countries (codes)", key: "country_codes" as const, placeholder: "KR, JP" },
-  { id: "ctsrc", label: "Sources (ids)", key: "source_ids" as const, placeholder: "tiktok, youtube" },
-];
-
 export default function ProfilePage() {
-  const { email, logout } = useAuth();
-  const [customTags, setCustomTags] = useState<CustomTag[]>([]);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [busy, setBusy] = useState(false);
+  const { email, loading: authLoading } = useAuth();
+  const [tags, setTags] = useState<CustomTag[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [sources, setSources] = useState<SourceInfo[]>([]);
+  const [editing, setEditing] = useState<CustomTag | null>(null);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<CustomTagDraft>(NEW_TAG);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  useEffect(() => {
+    if (!email) return;
+    void (async () => {
+      try {
+        setTags(await api.customTags());
+        const [c, s] = await Promise.all([
+          api.countries(undefined, true),
+          api.sources(),
+        ]);
+        setCountries(c);
+        setSources(s.filter((item) => item.status !== "OFFLINE"));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not load tags");
+      }
+    })();
+  }, [email]);
+
+  function startCreate() {
+    setEditing(null);
+    setDraft(NEW_TAG);
+    setOpen(true);
+  }
+
+  function startEdit(tag: CustomTag) {
+    setEditing(tag);
+    setDraft(tagToDraft(tag));
+    setOpen(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
     try {
-      setCustomTags(await api.customTags());
-    } catch {
-      setCustomTags([]);
+      if (editing) {
+        await api.updateCustomTag(editing.id, draft);
+      } else {
+        await api.createCustomTag(draft);
+      }
+      setTags(await api.customTags());
+      setOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save tag");
+    } finally {
+      setSaving(false);
     }
   }
 
-  useEffect(() => {
-    void load();
-  }, []);
-
-  async function createTag() {
-    if (form.name.trim().length < 2) return;
-    setBusy(true);
+  async function remove(id: string) {
+    if (!window.confirm("Delete this custom tag?")) return;
     try {
-      await api.createCustomTag({
-        name: form.name,
-        keywords: split(form.keywords),
-        hashtags: split(form.hashtags),
-        country_codes: split(form.country_codes).map((c) => c.toUpperCase()),
-        source_ids: split(form.source_ids),
-        excludes: split(form.excludes),
-      });
-      setForm(EMPTY_FORM);
-      await load();
-    } finally {
-      setBusy(false);
+      await api.deleteCustomTag(id);
+      setTags(await api.customTags());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete tag");
     }
+  }
+
+  if (authLoading) return <p className="muted">Loading…</p>;
+
+  if (!email) {
+    return (
+      <div className="empty">
+        <div className="empty-title">Sign in to manage your tags</div>
+        <p className="empty-text">
+          Custom tags, radars and notifications live in your account. Browsing
+          signals stays public.
+        </p>
+        <Link className="btn btn-primary" href="/login">
+          Sign in
+        </Link>
+      </div>
+    );
   }
 
   return (
     <>
-      <div className="section-title">PROFILE</div>
+      <div className="section-title">
+        Custom tags
+        <div className="spacer" />
+        <button className="btn btn-sm btn-primary" onClick={startCreate} type="button">
+          <PlusIcon size={13} /> New tag
+        </button>
+      </div>
 
-      <div className="card">
+      {error && <div className="alert alert-error">{error}</div>}
+
+      <TagList tags={tags} onEdit={startEdit} onDelete={remove} />
+
+      {open && (
+        <TagSheet
+          draft={draft}
+          onChange={setDraft}
+          onClose={() => setOpen(false)}
+          onSave={save}
+          countries={countries}
+          sources={sources}
+          saving={saving}
+        />
+      )}
+
+      <div className="section-title">Account</div>
+      <div className="panel">
         <div className="row">
-          <span className="badge badge-meta">{email ?? "not signed in"}</span>
-          <div className="spacer" />
-          <Link className="btn btn-sm" href="/settings">
-            Settings
+          <span className="muted text-sm">Signed in as</span>
+          <strong>{email}</strong>
+        </div>
+        <div className="row" style={{ marginTop: "var(--s3)" }}>
+          <Link className="btn" href="/settings">
+            Notification &amp; theme settings
           </Link>
-          <button className="btn btn-sm" onClick={logout}>
-            Sign out
-          </button>
+          <Link className="btn btn-ghost" href="/radars">
+            My radars
+          </Link>
         </div>
-      </div>
-
-      <div className="section-title">CUSTOM TAGS</div>
-      <p className="muted" style={{ fontSize: "0.85rem", marginTop: -4 }}>
-        Create your own tags. They really affect matching — no code required.
-      </p>
-
-      <div className="builder">
-        <div className="stack">
-          <div>
-            <label className="field-label" htmlFor="ctname">
-              Name
-            </label>
-            <input
-              id="ctname"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Korean Makeup"
-            />
-          </div>
-
-          {FIELDS.map((field) => (
-            <div key={field.id}>
-              <label className="field-label" htmlFor={field.id}>
-                {field.label}
-              </label>
-              <input
-                id={field.id}
-                value={form[field.key]}
-                onChange={(e) => setForm({ ...form, [field.key]: e.target.value })}
-                placeholder={field.placeholder}
-              />
-            </div>
-          ))}
-
-          <button
-            className="btn btn-primary"
-            onClick={createTag}
-            disabled={busy || form.name.trim().length < 2}
-          >
-            {busy ? "Saving…" : "Create custom tag"}
-          </button>
-        </div>
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        {customTags.length === 0 && (
-          <p className="dim" style={{ fontSize: "0.84rem" }}>
-            No custom tags yet.
-          </p>
-        )}
-        {customTags.map((tag) => (
-          <div key={tag.id} className="card">
-            <div className="row">
-              <span className="badge badge-meta">
-                {tag.emoji ?? "🏷️"} {tag.name}
-              </span>
-              <div className="spacer" />
-              <button
-                className="btn btn-sm btn-icon"
-                onClick={async () => {
-                  await api.deleteCustomTag(tag.id);
-                  await load();
-                }}
-                aria-label="Delete"
-              >
-                ✕
-              </button>
-            </div>
-            {tag.keywords.length > 0 && (
-              <div className="card-tags" style={{ marginTop: 8 }}>
-                {tag.keywords.map((keyword) => (
-                  <span key={keyword} className="tag-chip">
-                    {keyword}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
       </div>
     </>
   );

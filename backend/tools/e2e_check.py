@@ -15,6 +15,10 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+# Force UTF-8 output so emoji in titles never crash the run on Windows.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import delete, select  # noqa: E402

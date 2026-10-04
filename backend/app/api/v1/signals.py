@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentUser, OptionalUser, SessionDep
 from app.models import (
     IgnoredSignal,
     RadarSignal,
@@ -40,9 +40,9 @@ def _apply_user_flags(
 
 
 async def _user_sets(
-    session: SessionDep, user_id: str, signal_ids: list[str]
+    session: SessionDep, user_id: str | None, signal_ids: list[str]
 ) -> tuple[set[str], set[str]]:
-    if not signal_ids:
+    if not user_id or not signal_ids:
         return set(), set()
     saved = (
         (
@@ -74,7 +74,7 @@ async def _user_sets(
 @router.get("", response_model=SignalPage)
 async def list_signals(
     session: SessionDep,
-    user: CurrentUser,
+    user: OptionalUser,
     tab: str = Query(default="all"),
     status_filter: list[SignalStatus] | None = Query(default=None, alias="status"),
     country: list[str] | None = Query(default=None),
@@ -87,6 +87,7 @@ async def list_signals(
     limit: int = Query(default=30, le=100),
     offset: int = 0,
 ):
+    """Public feed. Signed-in visitors additionally get saved/ignored flags."""
     statement = select(Signal)
 
     if tab == "rising":
@@ -97,7 +98,19 @@ async def list_signals(
         statement = statement.where(Signal.status == SignalStatus.BREAKOUT)
     elif tab == "new":
         statement = statement.where(Signal.status == SignalStatus.NEW)
+    elif tab == "discover":
+        statement = statement.where(
+            Signal.status.in_(
+                [
+                    SignalStatus.NEW,
+                    SignalStatus.RISING,
+                    SignalStatus.BREAKOUT,
+                ]
+            )
+        )
     elif tab == "saved":
+        if user is None:
+            return SignalPage(items=[], total=0, limit=limit, offset=offset)
         statement = statement.join(
             SavedSignal, SavedSignal.signal_id == Signal.id
         ).where(SavedSignal.user_id == user.id)
@@ -142,7 +155,9 @@ async def list_signals(
         .all()
     )
 
-    saved_ids, ignored_ids = await _user_sets(session, user.id, [s.id for s in rows])
+    saved_ids, ignored_ids = await _user_sets(
+        session, user.id if user else None, [s.id for s in rows]
+    )
 
     items = _apply_user_flags(list(rows), saved_ids, ignored_ids)
     if tag:
@@ -157,7 +172,7 @@ async def list_signals(
 
 
 @router.get("/{signal_id}", response_model=SignalDetail)
-async def signal_detail(signal_id: str, session: SessionDep, user: CurrentUser):
+async def signal_detail(signal_id: str, session: SessionDep, user: OptionalUser):
     signal = (
         (
             await session.execute(
@@ -171,7 +186,9 @@ async def signal_detail(signal_id: str, session: SessionDep, user: CurrentUser):
     if signal is None:
         raise HTTPException(status_code=404, detail="Signal not found")
 
-    saved_ids, ignored_ids = await _user_sets(session, user.id, [signal.id])
+    saved_ids, ignored_ids = await _user_sets(
+        session, user.id if user else None, [signal.id]
+    )
     base = SignalOut(
         **{
             field: getattr(signal, field)
@@ -198,6 +215,55 @@ async def signal_detail(signal_id: str, session: SessionDep, user: CurrentUser):
             for s in signal.snapshots
         ],
     )
+
+
+@router.get("/{signal_id}/related", response_model=list[SignalOut])
+async def related_signals(
+    signal_id: str,
+    session: SessionDep,
+    user: OptionalUser,
+    limit: int = Query(default=6, le=20),
+):
+    """Signals sharing tags, country or source with this one."""
+    base = await _get_signal(session, signal_id)
+    base_tags = set(base.keywords or [])
+
+    candidates = (
+        (
+            await session.execute(
+                select(Signal)
+                .where(
+                    Signal.id != base.id,
+                    Signal.status != SignalStatus.FADING,
+                )
+                .order_by(Signal.strength.desc())
+                .limit(400)
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+
+    scored: list[tuple[int, Signal]] = []
+    for other in candidates:
+        score = 0
+        if base_tags & set(other.keywords or []):
+            score += 3 * len(base_tags & set(other.keywords or []))
+        if base.country_code and other.country_code == base.country_code:
+            score += 2
+        if other.source_id == base.source_id:
+            score += 1
+        if score:
+            scored.append((score, other))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    top = [signal for _, signal in scored[:limit]]
+
+    saved_ids, ignored_ids = await _user_sets(
+        session, user.id if user else None, [s.id for s in top]
+    )
+    return _apply_user_flags(top, saved_ids, ignored_ids)
 
 
 @router.get("/{signal_id}/history")

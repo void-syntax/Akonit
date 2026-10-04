@@ -48,38 +48,67 @@ export function timeAgo(iso: string | null | undefined): string {
 
 export const STATUS_META: Record<
   string,
-  { label: string; emoji: string; className: string }
+  { label: string; icon: string; tone: "new" | "rising" | "breakout" | "fading" }
 > = {
-  NEW: { label: "NEW", emoji: "🆕", className: "status-new" },
-  RISING: { label: "RISING", emoji: "📈", className: "status-rising" },
-  BREAKOUT: { label: "BREAKOUT", emoji: "🚨", className: "status-breakout" },
-  FADING: { label: "FADING", emoji: "💤", className: "status-fading" },
+  NEW: { label: "NEW", icon: "spark", tone: "new" },
+  RISING: { label: "RISING", icon: "trending", tone: "rising" },
+  BREAKOUT: { label: "BREAKOUT", icon: "bolt", tone: "breakout" },
+  FADING: { label: "FADING", icon: "pause", tone: "fading" },
 };
 
-export const SOURCE_META: Record<string, { name: string; emoji: string }> = {
-  tiktok: { name: "TikTok", emoji: "🎵" },
-  youtube: { name: "YouTube", emoji: "▶️" },
-  instagram: { name: "Instagram", emoji: "📸" },
-  x_trends: { name: "X", emoji: "𝕏" },
-  reddit: { name: "Reddit", emoji: "👽" },
-  google_trends: { name: "Google Trends", emoji: "🔍" },
-  google_news_trends: { name: "Google News", emoji: "📰" },
-  github: { name: "GitHub", emoji: "🐙" },
-  huggingface: { name: "Hugging Face", emoji: "🤗" },
-  producthunt: { name: "Product Hunt", emoji: "🚀" },
-  hackernews: { name: "Hacker News", emoji: "🟧" },
-  npm: { name: "npm", emoji: "📦" },
-  devto: { name: "DEV", emoji: "✍️" },
-  lobsters: { name: "Lobsters", emoji: "🦞" },
-  stackoverflow: { name: "Stack Overflow", emoji: "📚" },
+export const SOURCE_META: Record<string, { name: string; color: string }> = {
+  tiktok: { name: "TikTok", color: "#ff2d55" },
+  youtube: { name: "YouTube", color: "#ff0033" },
+  instagram: { name: "Instagram", color: "#e1306c" },
+  x_trends: { name: "X", color: "#8b98a8" },
+  reddit: { name: "Reddit", color: "#ff4500" },
+  google_trends: { name: "Google Trends", color: "#4d8dff" },
+  google_news_trends: { name: "Google News", color: "#5b8cff" },
+  github: { name: "GitHub", color: "#8b98a8" },
+  huggingface: { name: "Hugging Face", color: "#ffcc4d" },
+  producthunt: { name: "Product Hunt", color: "#da552f" },
+  hackernews: { name: "Hacker News", color: "#ff6600" },
+  npm: { name: "npm", color: "#cb3837" },
+  devto: { name: "DEV", color: "#7ab8f5" },
+  lobsters: { name: "Lobsters", color: "#e06000" },
+  stackoverflow: { name: "Stack Overflow", color: "#f48024" },
 };
 
 export function sourceName(id: string): string {
   return SOURCE_META[id]?.name ?? id;
 }
 
+export function sourceColor(id: string): string {
+  return SOURCE_META[id]?.color ?? "var(--text-3)";
+}
+
 export function strengthTone(strength: number): "low" | "mid" | "high" {
   if (strength >= 70) return "high";
   if (strength >= 45) return "mid";
   return "low";
+}
+
+/** "South Korea" from "KR" so the card reads like the spec example. */
+const COUNTRY_NAMES: Record<string, string> = {
+  KR: "South Korea", JP: "Japan", US: "United States", GB: "United Kingdom",
+  CN: "China", TW: "Taiwan", HK: "Hong Kong", TR: "Turkey", AE: "UAE",
+  AZ: "Azerbaijan", BR: "Brazil", IN: "India", DE: "Germany", FR: "France",
+  ES: "Spain", IT: "Italy", MX: "Mexico", CA: "Canada", AU: "Australia",
+  RU: "Russia", SG: "Singapore", ID: "Indonesia", PH: "Philippines",
+  TH: "Thailand", VN: "Vietnam", MY: "Malaysia", PL: "Poland", NL: "Netherlands",
+  SE: "Sweden", PT: "Portugal", UA: "Ukraine", SA: "Saudi Arabia",
+  IL: "Israel", ZA: "South Africa", NG: "Nigeria", EG: "Egypt",
+  KZ: "Kazakhstan", AR: "Argentina", CL: "Chile", CO: "Colombia",
+  PE: "Peru", NZ: "New Zealand", IE: "Ireland", RO: "Romania",
+  GR: "Greece", PK: "Pakistan", BD: "Bangladesh", IR: "Iran", QA: "Qatar",
+};
+
+export function countryName(code: string | null | undefined): string {
+  if (!code) return "Global";
+  return COUNTRY_NAMES[code] ?? code;
+}
+
+/** "18 min ago" for the "First detected" line. */
+export function firstDetected(iso: string | null | undefined): string {
+  return timeAgo(iso);
 }

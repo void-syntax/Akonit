@@ -126,13 +126,70 @@ export interface CustomTag {
   name: string;
   slug: string;
   keywords: string[];
+  aliases: string[];
   hashtags: string[];
   country_codes: string[];
   source_ids: string[];
   excludes: string[];
+  exclude_hashtags: string[];
+  exclude_countries: string[];
   emoji: string | null;
   is_active: boolean;
   created_at: string;
+}
+
+export interface CustomTagDraft {
+  name: string;
+  keywords: string[];
+  aliases: string[];
+  hashtags: string[];
+  country_codes: string[];
+  source_ids: string[];
+  excludes: string[];
+  exclude_hashtags: string[];
+  exclude_countries: string[];
+  emoji?: string | null;
+}
+
+export interface Profile {
+  display_name: string | null;
+  timezone: string;
+  language: string;
+  telegram_chat_id: string | null;
+  default_frequency: NotificationFrequency;
+  onboarded: boolean;
+  signal_threshold: number;
+  default_countries: string[];
+  default_sources: string[];
+  default_tags: string[];
+  quiet_hours: { start: string; end: string; enabled: boolean } | null;
+  theme: string;
+}
+
+export interface PublicStats {
+  total_signals: number;
+  active_signals: number;
+  breakout: number;
+  rising: number;
+  new: number;
+  fading: number;
+  sources: number;
+  countries: number;
+  last_signal_at: string | null;
+}
+
+export interface RadarSummary {
+  radar_id: string;
+  parts: string[];
+  threshold: number;
+  frequency: NotificationFrequency;
+}
+
+export interface NotificationStatus {
+  linked: boolean;
+  chat_id: string | null;
+  bot_configured: boolean;
+  push_configured: boolean;
 }
 
 /* --- condition AST --- */

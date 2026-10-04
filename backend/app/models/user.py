@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum as SAEnum, ForeignKey, String
+from sqlalchemy import JSON, Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -45,6 +45,14 @@ class UserProfile(Base):
     )
     push_subscriptions: Mapped[list] = mapped_column(JSON, default=list)
     onboarded: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # --- product settings (per-user defaults) ---
+    signal_threshold: Mapped[float] = mapped_column(Float, default=0.0)
+    default_countries: Mapped[list] = mapped_column(JSON, default=list)
+    default_sources: Mapped[list] = mapped_column(JSON, default=list)
+    default_tags: Mapped[list] = mapped_column(JSON, default=list)
+    quiet_hours: Mapped[dict | None] = mapped_column(JSON, default=None)
+    theme: Mapped[str] = mapped_column(String(16), default="dark")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="profile")

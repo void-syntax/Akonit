@@ -1,135 +1,387 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { CheckIcon } from "@/components/icons";
 import { api } from "@/lib/api";
-import { sourceName } from "@/lib/format";
-import type { SourceHealthReport } from "@/lib/types";
+import { countryName } from "@/lib/format";
+import type {
+  Country,
+  NotificationFrequency,
+  NotificationStatus,
+  Profile,
+  SourceInfo,
+} from "@/lib/types";
+import { useAuth } from "@/store/auth";
 
-const STATUS_ICON: Record<string, string> = {
-  ACTIVE: "🟢",
-  DEGRADED: "🟡",
-  OFFLINE: "🔴",
-  OPTIONAL_CREDENTIALS: "⚪",
-};
+const FREQUENCIES: { value: NotificationFrequency; label: string }[] = [
+  { value: "OFF", label: "Off — never notify" },
+  { value: "INSTANT", label: "Instant — as soon as it matches" },
+  { value: "EVERY_15_MIN", label: "Every 15 minutes" },
+  { value: "HOURLY", label: "Hourly digest" },
+  { value: "DAILY_DIGEST", label: "Daily digest" },
+];
 
-const STATUS_TEXT: Record<string, string> = {
-  ACTIVE: "ACTIVE",
-  DEGRADED: "DEGRADED",
-  OFFLINE: "OFFLINE",
-  OPTIONAL_CREDENTIALS: "OPTIONAL CREDENTIALS",
-};
+function toggleInList(list: string[], value: string): string[] {
+  return list.includes(value)
+    ? list.filter((v) => v !== value)
+    : [...list, value];
+}
 
 export default function SettingsPage() {
-  const [report, setReport] = useState<SourceHealthReport | null>(null);
-  const [collecting, setCollecting] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  const { email, loading: authLoading } = useAuth();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [status, setStatus] = useState<NotificationStatus | null>(null);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [sources, setSources] = useState<SourceInfo[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [chatId, setChatId] = useState("");
+  const [pushState, setPushState] = useState<"idle" | "on" | "unsupported">(
+    "idle",
+  );
 
   useEffect(() => {
+    if (!email) return;
     void (async () => {
       try {
-        setReport(await api.sourceHealth());
-      } catch {
-        setReport(null);
+        const [p, s, c, src] = await Promise.all([
+          api.profile(),
+          api.notificationStatus(),
+          api.countries(undefined, true),
+          api.sources(),
+        ]);
+        setProfile(p);
+        setStatus(s);
+        setChatId(p.telegram_chat_id ?? "");
+        setCountries(c);
+        setSources(src.filter((item) => item.status !== "OFFLINE"));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not load settings");
       }
     })();
-  }, []);
+  }, [email]);
 
-  async function collectNow() {
-    setCollecting(true);
-    setResult(null);
+  async function patch(payload: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
     try {
-      const res = await api.collectNow();
-      setResult(
-        `Fetched ${res.fetched} events · ${res.signals_created} new signals · ${res.sources_ok} sources ok`,
-      );
-      setReport(await api.sourceHealth());
+      setProfile(await api.updateProfile(payload));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2200);
     } catch (err) {
-      setResult(err instanceof Error ? err.message : "Collection failed");
+      setError(err instanceof Error ? err.message : "Could not save");
     } finally {
-      setCollecting(false);
+      setBusy(false);
     }
   }
 
+  async function enablePush() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushState("unsupported");
+      return;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setError("Browser blocked notifications for this site.");
+        return;
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+      });
+      await api.subscribePush(
+        subscription.toJSON() as {
+          endpoint: string;
+          keys: Record<string, string>;
+        },
+      );
+      setPushState("on");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Push failed: ${err.message}`
+          : "Push notifications unavailable",
+      );
+    }
+  }
+
+  async function linkTelegram() {
+    await patch({ telegram_chat_id: chatId });
+    try {
+      setStatus(await api.notificationStatus());
+    } catch {
+      /* status refresh is optional */
+    }
+  }
+
+  if (authLoading) return <p className="muted">Loading…</p>;
+
+  if (!email) {
+    return (
+      <div className="empty">
+        <div className="empty-title">Sign in to change settings</div>
+        <p className="empty-text">
+          Notification channels, quiet hours and defaults are stored per account.
+        </p>
+        <Link className="btn btn-primary" href="/login">
+          Sign in
+        </Link>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <>
+        {error && <div className="alert alert-error">{error}</div>}
+        <p className="muted">Loading settings…</p>
+      </>
+    );
+  }
+
+  const quiet = profile.quiet_hours ?? {
+    start: "23:00",
+    end: "07:00",
+    enabled: false,
+  };
+
   return (
     <>
-      <div className="section-title">SOURCE HEALTH</div>
-
-      {report && (
-        <div className="row" style={{ marginBottom: 12 }}>
-          {Object.entries(report.summary).map(([status, count]) => (
-            <span key={status} className="badge badge-meta">
-              {STATUS_ICON[status]} {STATUS_TEXT[status]}: {count}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {!report && <p className="muted">Loading source status…</p>}
-
-      {report?.sources.map((source) => (
-        <div key={source.id} className="card">
-          <div className="card-top">
-            <span
-              className={`badge badge-status-${
-                source.status === "ACTIVE"
-                  ? "rising"
-                  : source.status === "OFFLINE"
-                    ? "breakout"
-                    : source.status === "DEGRADED"
-                      ? "new"
-                      : "fading"
-              }`}
-            >
-              {STATUS_ICON[source.status]} {STATUS_TEXT[source.status]}
-            </span>
-            <span className="badge badge-meta">{source.name}</span>
-            <span className="badge badge-meta">{source.cost}</span>
-          </div>
-
-          <h3 className="card-title" style={{ WebkitLineClamp: 3 }}>
-            {source.description ?? sourceName(source.id)}
-          </h3>
-
-          <div className="card-foot">
-            <span className="dim mono" style={{ fontSize: "0.73rem" }}>
-              strategy: {source.strategy ?? "—"} · records:{" "}
-              {source.total_records} · failures: {source.consecutive_failures}
-            </span>
-          </div>
-
-          {source.status_reason && (
-            <p className="dim" style={{ fontSize: "0.76rem", marginBottom: 0 }}>
-              {source.status_reason}
-            </p>
-          )}
-          {source.last_error && (
-            <p className="error" style={{ marginTop: 8, marginBottom: 0 }}>
-              {source.last_error.slice(0, 220)}
-            </p>
-          )}
-        </div>
-      ))}
-
-      <div className="section-title">PIPELINE</div>
-      <div className="row">
-        <button className="btn" onClick={collectNow} disabled={collecting}>
-          {collecting ? "Collecting…" : "Run collection now"}
-        </button>
-        <span className="muted" style={{ fontSize: "0.82rem" }}>
-          {result ?? "The worker runs this automatically every 15 minutes."}
-        </span>
+      <div className="section-title">
+        Notifications
+        {saved && (
+          <span className="badge badge-accent">
+            <CheckIcon size={12} /> Saved
+          </span>
+        )}
       </div>
 
-      <div className="section-title">PRINCIPLE</div>
-      <p className="muted" style={{ fontSize: "0.86rem" }}>
-        You decide what to watch. Signal Radar watches it 24/7 and shows you what
-        only just started to grow — not what everyone already saw.
-      </p>
-      <p className="dim" style={{ fontSize: "0.8rem" }}>
-        Zero API cost. No LLM. All detection is deterministic: growth,
-        acceleration, recency, persistence and cross-source confirmation.
-      </p>
+      <div className="panel">
+        <div className="field">
+          <label className="field-label" htmlFor="sfreq">
+            Default frequency for new radars
+          </label>
+          <select
+            id="sfreq"
+            value={profile.default_frequency}
+            disabled={busy}
+            onChange={(e) => patch({ default_frequency: e.target.value })}
+          >
+            {FREQUENCIES.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <span className="field-label">Signal strength threshold</span>
+          <div className="slider-row">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={profile.signal_threshold}
+              disabled={busy}
+              onChange={(e) =>
+                setProfile({
+                  ...profile,
+                  signal_threshold: Number(e.target.value),
+                })
+              }
+              onMouseUp={(e) =>
+                patch({ signal_threshold: Number(e.currentTarget.value) })
+              }
+              onTouchEnd={(e) =>
+                patch({ signal_threshold: Number(e.currentTarget.value) })
+              }
+            />
+            <span className="slider-value">{profile.signal_threshold}</span>
+          </div>
+          <div className="field-hint">
+            Signals weaker than this are ignored when a radar has no explicit
+            threshold.
+          </div>
+        </div>
+
+        <div className="field">
+          <label className="field-label" htmlFor="qstart">
+            Quiet hours
+          </label>
+          <div className="row">
+            <button
+              className="chip"
+              data-active={quiet.enabled}
+              disabled={busy}
+              onClick={() =>
+                patch({ quiet_hours: { ...quiet, enabled: !quiet.enabled } })
+              }
+              type="button"
+            >
+              {quiet.enabled ? "ON" : "OFF"}
+            </button>
+            <input
+              id="qstart"
+              type="time"
+              value={quiet.start}
+              disabled={busy || !quiet.enabled}
+              style={{ maxWidth: 130 }}
+              onChange={(e) =>
+                patch({ quiet_hours: { ...quiet, start: e.target.value } })
+              }
+            />
+            <span className="dim">to</span>
+            <input
+              type="time"
+              value={quiet.end}
+              disabled={busy || !quiet.enabled}
+              style={{ maxWidth: 130 }}
+              onChange={(e) =>
+                patch({ quiet_hours: { ...quiet, end: e.target.value } })
+              }
+            />
+          </div>
+          <div className="field-hint">
+            No notifications are delivered inside this window.
+          </div>
+        </div>
+      </div>
+
+      <div className="section-title">Channels</div>
+
+      <div className="panel">
+        <div className="row">
+          <div>
+            <div className="step-title">Browser push</div>
+            <div className="field-hint">
+              {pushState === "unsupported"
+                ? "This browser does not support web push."
+                : status?.push_configured
+                  ? "VAPID keys are configured on the server."
+                  : "Requires VAPID keys in .env (see .env.example)."}
+            </div>
+          </div>
+          <div className="spacer" />
+          <button
+            className="btn"
+            data-active={pushState === "on"}
+            onClick={enablePush}
+            disabled={pushState === "unsupported"}
+            type="button"
+          >
+            {pushState === "on" ? "Enabled" : "Enable push"}
+          </button>
+        </div>
+
+        <div className="row" style={{ marginTop: "var(--s4)" }}>
+          <div>
+            <div className="step-title">Telegram</div>
+            <div className="field-hint">
+              {status?.bot_configured
+                ? status.linked
+                  ? `Linked to chat ${status.chat_id}`
+                  : "Bot token is set. Paste your chat ID below."
+                : "TELEGRAM_BOT_TOKEN is not set in .env."}
+            </div>
+          </div>
+          <div className="spacer" />
+          <input
+            placeholder="Chat ID"
+            value={chatId}
+            onChange={(e) => setChatId(e.target.value)}
+            style={{ maxWidth: 170 }}
+          />
+          <button
+            className="btn btn-primary"
+            onClick={linkTelegram}
+            disabled={busy || !chatId}
+            type="button"
+          >
+            Link
+          </button>
+        </div>
+      </div>
+
+      <div className="section-title">Defaults for new radars</div>
+
+      <div className="panel">
+        <div className="field">
+          <span className="field-label">Default countries</span>
+          <div className="chip-picker">
+            {countries.map((c) => (
+              <button
+                key={c.code}
+                className="chip"
+                data-active={profile.default_countries.includes(c.code)}
+                disabled={busy}
+                onClick={() =>
+                  patch({
+                    default_countries: toggleInList(
+                      profile.default_countries,
+                      c.code,
+                    ),
+                  })
+                }
+                type="button"
+              >
+                {c.flag} {countryName(c.code)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <span className="field-label">Default sources</span>
+          <div className="chip-picker">
+            {sources.map((s) => (
+              <button
+                key={s.id}
+                className="chip"
+                data-active={profile.default_sources.includes(s.id)}
+                disabled={busy}
+                onClick={() =>
+                  patch({
+                    default_sources: toggleInList(
+                      profile.default_sources,
+                      s.id,
+                    ),
+                  })
+                }
+                type="button"
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="section-title">Appearance</div>
+
+      <div className="panel">
+        <span className="field-label">Theme</span>
+        <div className="row" style={{ marginTop: 8 }}>
+          {["dark", "system"].map((option) => (
+            <button
+              key={option}
+              className="chip"
+              data-active={profile.theme === option}
+              disabled={busy}
+              onClick={() => patch({ theme: option })}
+              type="button"
+            >
+              {option === "dark" ? "Dark (default)" : "Match system"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error && <div className="alert alert-error">{error}</div>}
     </>
   );
 }

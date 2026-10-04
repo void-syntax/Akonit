@@ -28,6 +28,15 @@ early signals appear, and you get notified.
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if settings.is_sqlite:
         await init_models()
+
+        # Older SQLite files predate the product-settings columns.
+        from app.db.migrate import apply_migrations
+        from app.db.session import engine
+
+        added = await apply_migrations(engine)
+        if added:
+            logger.info("schema migrated: %s", ", ".join(added))
+
     from app.seed.runner import seed_countries, seed_sources, seed_tags
 
     from app.db.session import SessionLocal
