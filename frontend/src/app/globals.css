@@ -736,7 +736,12 @@ input:focus, select:focus, textarea:focus {
 .filters::-webkit-scrollbar { display: none; }
 
 .filter {
-  flex: none;
+  /* A <select> with flex:none sizes itself to its widest option, which stretched
+     the country filter across the whole page. Sizing it explicitly keeps every
+     filter a compact pill. */
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 220px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -749,6 +754,18 @@ input:focus, select:focus, textarea:focus {
   font-size: var(--t-13);
   font-weight: 600;
   transition: all var(--e-fast);
+  text-overflow: ellipsis;
+}
+
+select.filter {
+  appearance: none;
+  padding-right: 28px;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
 }
 
 .filter:hover {

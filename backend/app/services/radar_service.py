@@ -24,6 +24,7 @@ from app.models.enums import (
     ConditionType,
     JoinType,
     NotificationFrequency,
+    SignalStatus,
 )
 from app.radar.ast import Group, Node, normalize_ast, summarize_conditions
 from app.radar.evaluator import evaluate_group
@@ -260,7 +261,7 @@ async def match_signal_to_radars(
     radars = (await session.execute(statement)).scalars().unique().all()
 
     existing = {
-        rs.signal_id
+        (rs.radar_id, rs.signal_id)
         for rs in (
             (
                 await session.execute(
@@ -276,9 +277,9 @@ async def match_signal_to_radars(
 
     outcomes: list[MatchOutcome] = []
     for radar in radars:
-        if signal.id in existing:
-            continue
-        if radar.source_ids and signal.source_id not in radar.source_ids:
+        # The pair matters: a signal already matched by radar A must still be
+        # evaluated against radar B.
+        if (radar.id, signal.id) in existing:
             continue
         matched, reason = await radar_matches_signal(session, radar, signal)
         if not matched:
@@ -307,19 +308,35 @@ async def match_batch(
     *,
     lookback_minutes: int = 60,
 ) -> list[MatchOutcome]:
-    """Match signals created in the lookback window against all radars."""
-    since = datetime.now(UTC) - timedelta(minutes=lookback_minutes)
-    signals = (
-        (
-            await session.execute(
-                select(Signal).where(Signal.first_seen_at >= since)
-            )
+    """Re-evaluate signals that are new OR whose metrics changed recently.
+
+    Only looking at first_seen_at would miss the most valuable case: a signal
+    that was slow at first and only later started to take off. Those have an
+    old first_seen_at but a fresh last_seen_at, so both windows are scanned.
+    """
+    now = datetime.now(UTC)
+    since_new = now - timedelta(minutes=lookback_minutes)
+    since_changed = now - timedelta(minutes=lookback_minutes)
+
+    statement = (
+        select(Signal)
+        .where(
+            (Signal.first_seen_at >= since_new)
+            | (Signal.matched_at.is_(None))
+            | (Signal.matched_at <= since_changed)
         )
-        .scalars()
-        .unique()
-        .all()
+        .where(Signal.status != SignalStatus.FADING)
+        .order_by(Signal.first_seen_at.desc())
+        .limit(500)
     )
+    signals = (await session.execute(statement)).scalars().unique().all()
+
     outcomes: list[MatchOutcome] = []
     for signal in signals:
         outcomes.extend(await match_signal_to_radars(session, signal))
+        signal.matched_at = now
+
+    if signals:
+        await session.commit()
+
     return outcomes

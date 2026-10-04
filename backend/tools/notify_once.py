@@ -16,6 +16,8 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tools._bootstrap import run as bootstrap_run  # noqa: E402
+
 from app.db.session import SessionLocal  # noqa: E402
 from app.notifications.dispatcher import flush_deliveries, notify_matches  # noqa: E402
 from app.services.radar_service import match_batch  # noqa: E402
@@ -46,4 +48,4 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    raise SystemExit(bootstrap_run(main()))

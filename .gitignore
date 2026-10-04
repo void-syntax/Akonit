@@ -48,3 +48,4 @@ dev.log
 api.log
 *.tsbuildinfo
 *_summary.json
+*.txt

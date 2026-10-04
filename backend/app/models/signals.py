@@ -68,6 +68,21 @@ class Signal(Base):
 
     source_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
+    # --- radar engine support ---
+    velocity: Mapped[float] = mapped_column(Float, default=0.0)
+    """Smoothed rate of change. Far more stable than raw growth between two
+    adjacent collection windows, which is what a real trend looks like."""
+
+    density_count: Mapped[int] = mapped_column(Integer, default=1)
+    """How many recent signals share this signal's strongest tag (a burst)."""
+
+    matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """Last time this signal was evaluated against any radar."""
+
+    tags_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
     tag_links: Mapped[list["SignalTag"]] = relationship(  # noqa: F821
         back_populates="signal", cascade="all, delete-orphan"
     )

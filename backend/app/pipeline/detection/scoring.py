@@ -28,6 +28,13 @@ def growth_score(metrics: GrowthMetrics) -> float:
     return _scale(max(metrics.growth, 0.0), 500.0)
 
 
+def velocity_score(metrics: GrowthMetrics) -> float:
+    """Smoothed trend strength. Weighted alongside growth, but capped lower so a
+    single huge window cannot dominate: sustained movement beats a one-off spike.
+    """
+    return _scale(max(metrics.velocity, 0.0), 250.0)
+
+
 def acceleration_score(metrics: GrowthMetrics) -> float:
     if not metrics.has_acceleration:
         # A brand-new object with growth is inherently accelerating.
@@ -80,6 +87,7 @@ def compute_strength(
     """
     total = (
         growth_score(metrics) * settings.weight_growth
+        + velocity_score(metrics) * settings.weight_velocity
         + acceleration_score(metrics) * settings.weight_acceleration
         + recency_score(metrics, window_minutes) * settings.weight_recency
         + absolute_score(metrics) * settings.weight_absolute
@@ -99,6 +107,7 @@ def strength_components(
     """Breakdown for the signal detail page."""
     return {
         "growth": round(growth_score(metrics) * settings.weight_growth, 2),
+        "velocity": round(velocity_score(metrics) * settings.weight_velocity, 2),
         "acceleration": round(
             acceleration_score(metrics) * settings.weight_acceleration, 2
         ),

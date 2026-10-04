@@ -67,7 +67,6 @@ export default function DiscoverPage() {
           data-active={Boolean(country)}
           value={country}
           onChange={(e) => setCountry(e.target.value)}
-          style={{ appearance: "none", paddingRight: 28 }}
         >
           <option value="">All countries</option>
           {countries.map((c) => (
@@ -82,7 +81,6 @@ export default function DiscoverPage() {
           data-active={Boolean(source)}
           value={source}
           onChange={(e) => setSource(e.target.value)}
-          style={{ appearance: "none", paddingRight: 28 }}
         >
           <option value="">All sources</option>
           {sources.map((s) => (

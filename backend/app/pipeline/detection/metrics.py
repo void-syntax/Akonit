@@ -29,6 +29,9 @@ class GrowthMetrics:
     """Percentage change vs the previous observation window."""
     acceleration: float = float("nan")
     """Change of growth itself (second derivative). NaN when unknown."""
+    velocity: float = 0.0
+    """Smoothed rate of change across the whole series. This is what identifies
+    a trend taking off, instead of a single noisy window."""
     absolute: float = 0.0
     persistence: int = 0
     """Consecutive windows with increasing activity."""
@@ -51,6 +54,29 @@ def safe_pct(current: float, previous: float) -> float:
     if previous < MIN_ACTIVITY:
         return 100.0 if current >= MIN_ACTIVITY else 0.0
     return ((current - previous) / previous) * 100.0
+
+
+def weighted_velocity(values: list[float], alpha: float = 0.45) -> float:
+    """Exponentially weighted rate of change over a series.
+
+    Comparing only the last two observations is extremely noisy: one bad fetch
+    reads as a 200% drop or spike. Weighting recent samples more heavily keeps
+    the trend readable, which is what makes BREAKOUT reachable in practice.
+    """
+    clean = [max(float(v), 0.0) for v in values if v is not None]
+    if len(clean) < 2:
+        return 100.0 if clean and clean[-1] >= MIN_ACTIVITY else 0.0
+
+    velocity = 0.0
+    weight_sum = 0.0
+    for index in range(1, len(clean)):
+        step = safe_pct(clean[index], clean[index - 1])
+        # Most recent sample carries the most weight.
+        weight = alpha ** (len(clean) - 1 - index)
+        velocity += step * weight
+        weight_sum += weight
+
+    return velocity / weight_sum if weight_sum else 0.0
 
 
 def compute_growth_acceleration(
@@ -78,6 +104,11 @@ def compute_growth_acceleration(
         previous = ordered[-2].activity
     metrics.previous = previous
     metrics.growth = safe_pct(current, previous)
+
+    # Smoothed rate of change over the last few windows, far steadier than the
+    # raw two-point growth which swings wildly on a single bad fetch.
+    series = [p.activity for p in ordered[-6:]]
+    metrics.velocity = weighted_velocity(series)
 
     if len(ordered) >= 3:
         prev_prev = ordered[-3].activity

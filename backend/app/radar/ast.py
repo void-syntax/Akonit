@@ -173,7 +173,12 @@ def ast_to_groups(root: Group) -> list[dict[str, Any]]:
 
 
 def summarize_conditions(root: Group) -> dict[str, list[str]]:
-    """Denormalised summary shown on radar cards."""
+    """Denormalised summary shown on radar cards.
+
+    Walks the whole tree: the previous version only looked two levels deep, so
+    a condition nested inside two or more groups was silently dropped from the
+    summary and any pre-filter built on it excluded valid signals.
+    """
     summary: dict[str, list[str]] = {
         "countries": [],
         "sources": [],
@@ -181,12 +186,15 @@ def summarize_conditions(root: Group) -> dict[str, list[str]]:
         "keywords": [],
         "excludes": [],
     }
-    for group in root.children:
-        if group.is_group and group.group is not None:
-            for nested in group.group.children:
-                _collect(nested.condition, summary)
-        else:
-            _collect(group.condition, summary)
+
+    def walk(group: Group) -> None:
+        for child in group.children:
+            if child.is_group and child.group is not None:
+                walk(child.group)
+            else:
+                _collect(child.condition, summary)
+
+    walk(root)
     return summary
 
 

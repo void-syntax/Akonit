@@ -338,7 +338,6 @@ function FilterSelect({
       data-active={Boolean(value)}
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value || null)}
-      style={{ appearance: "none", paddingRight: 28 }}
     >
       <option value="">{`${label}: ${allLabel}`}</option>
       {options.map((option) => (

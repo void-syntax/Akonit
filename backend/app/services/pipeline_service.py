@@ -331,6 +331,7 @@ async def _recompute(session: AsyncSession, signal: Signal) -> None:
     )
 
     signal.growth = round(metrics.growth, 2)
+    signal.velocity = round(metrics.velocity, 2)
     signal.acceleration = (
         round(metrics.acceleration, 2) if metrics.has_acceleration else 0.0
     )
