@@ -2,37 +2,106 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+
+import {
+  BookmarkIcon,
+  CompassIcon,
+  RadarIcon,
+  RadarIcon as LogoIcon,
+  SearchIcon,
+  UserIcon,
+} from "@/components/icons";
+import { api } from "@/lib/api";
+import { useAuth } from "@/store/auth";
+import type { LiveState } from "@/lib/useLiveFeed";
 
 const NAV = [
-  { href: "/", label: "Signals", icon: "📡" },
-  { href: "/radars", label: "Radars", icon: "🎯" },
-  { href: "/saved", label: "Saved", icon: "🔖" },
-  { href: "/profile", label: "Profile", icon: "👤" },
-  { href: "/settings", label: "Settings", icon: "⚙️" },
+  { href: "/", label: "Signals", Icon: CompassIcon },
+  { href: "/radars", label: "Radars", Icon: RadarIcon },
+  { href: "/discover", label: "Discover", Icon: SearchIcon },
+  { href: "/saved", label: "Saved", Icon: BookmarkIcon },
+  { href: "/profile", label: "Profile", Icon: UserIcon },
 ];
 
 function isActive(pathname: string, href: string): boolean {
-  if (href === "/") return pathname === "/" || pathname.startsWith("/signals");
+  if (href === "/") return pathname === "/";
+  if (href === "/radars") {
+    return pathname === "/radars" || pathname.startsWith("/radars/");
+  }
   return pathname.startsWith(href);
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "/";
+  const { email, hydrate } = useAuth();
+  const [live, setLive] = useState<LiveState>("connecting");
+  const [breakout, setBreakout] = useState(0);
+
+  useEffect(() => {
+    void hydrate();
+  }, [hydrate]);
+
+  // Lightweight live probe so the header badge reflects reality, not a guess.
+  useEffect(() => {
+    let active = true;
+
+    async function poll() {
+      try {
+        const report = await api.sourceHealth();
+        if (!active) return;
+        const ok = Object.values(report.summary).some((n) => n > 0);
+        setLive(ok ? "live" : "connecting");
+      } catch {
+        if (active) setLive("offline");
+      }
+      try {
+        const stats = await api.stats();
+        if (active) setBreakout(stats.breakout);
+      } catch {
+        /* counts are cosmetic here */
+      }
+    }
+
+    void poll();
+    const timer = setInterval(poll, 30_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="container topbar-inner">
           <Link href="/" className="brand">
-            SIGNAL RADAR
-            <span>early signals, 24/7</span>
+            <span className="brand-mark">
+              <LogoIcon size={17} />
+            </span>
+            <span className="brand-text">
+              SIGNAL RADAR
+              <span className="brand-sub">early signals, 24/7</span>
+            </span>
           </Link>
+
           <div className="spacer" />
-          <Link href="/settings" className="live" data-state="idle" title="Source health">
+
+          <span className="live" data-state={live}>
             <span className="live-dot" />
-            LIVE
-          </Link>
+            {live === "live" ? "LIVE" : live.toUpperCase()}
+          </span>
+
+          {email ? (
+            <Link href="/profile" className="btn btn-sm btn-ghost">
+              <UserIcon size={15} />
+              <span className="desktop-only">Account</span>
+            </Link>
+          ) : (
+            <Link href="/login" className="btn btn-sm btn-primary">
+              Sign in
+            </Link>
+          )}
         </div>
       </header>
 
@@ -45,9 +114,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link
             key={item.href}
             href={item.href}
+            className="tabbar-item"
             data-active={isActive(pathname, item.href)}
           >
-            <span className="tab-icon">{item.icon}</span>
+            <item.Icon size={21} />
             <span>{item.label}</span>
           </Link>
         ))}

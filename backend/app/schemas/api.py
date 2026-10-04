@@ -52,6 +52,12 @@ class ProfileOut(ORMModel):
     telegram_chat_id: str | None
     default_frequency: NotificationFrequency
     onboarded: bool
+    signal_threshold: float = 0.0
+    default_countries: list[str] = Field(default_factory=list)
+    default_sources: list[str] = Field(default_factory=list)
+    default_tags: list[str] = Field(default_factory=list)
+    quiet_hours: dict[str, Any] | None = None
+    theme: str = "dark"
 
 
 # ---------------------------------------------------------- taxonomy
@@ -97,10 +103,13 @@ class TagOut(ORMModel):
 class CustomTagCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     keywords: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
     hashtags: list[str] = Field(default_factory=list)
     country_codes: list[str] = Field(default_factory=list)
     source_ids: list[str] = Field(default_factory=list)
     excludes: list[str] = Field(default_factory=list)
+    exclude_hashtags: list[str] = Field(default_factory=list)
+    exclude_countries: list[str] = Field(default_factory=list)
     emoji: str | None = None
 
 
@@ -109,10 +118,13 @@ class CustomTagOut(ORMModel):
     name: str
     slug: str
     keywords: list[str]
+    aliases: list[str]
     hashtags: list[str]
     country_codes: list[str]
     source_ids: list[str]
     excludes: list[str]
+    exclude_hashtags: list[str]
+    exclude_countries: list[str]
     emoji: str | None
     is_active: bool
     created_at: datetime
@@ -215,9 +227,27 @@ class ConditionOption(BaseModel):
     operators: list[str]
     unit_options: list[str] | None = None
     description: str
+
+
 class ProfileUpdate(BaseModel):
     display_name: str | None = None
     timezone: str | None = None
     language: str | None = None
     telegram_chat_id: str | None = None
     default_frequency: NotificationFrequency | None = None
+    signal_threshold: float | None = None
+    default_countries: list[str] | None = None
+    default_sources: list[str] | None = None
+    default_tags: list[str] | None = None
+    quiet_hours: dict[str, Any] | None = None
+    theme: str | None = None
+
+
+class PushSubscribeRequest(BaseModel):
+    endpoint: str
+    keys: dict[str, str] = Field(default_factory=dict)
+    radar_id: str | None = None
+
+
+class PushUnsubscribeRequest(BaseModel):
+    endpoint: str

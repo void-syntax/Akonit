@@ -3,7 +3,13 @@ import type {
   ConditionOption,
   Country,
   CustomTag,
+  CustomTagDraft,
+  NotificationFrequency,
+  NotificationStatus,
+  Profile,
+  PublicStats,
   Radar,
+  RadarSummary,
   Signal,
   SignalDetail,
   SignalPage,
@@ -90,7 +96,7 @@ function qs(params: Record<string, unknown>): string {
 }
 
 export interface FeedQuery {
-  tab?: "all" | "new" | "rising" | "breakout" | "saved";
+  tab?: "all" | "new" | "rising" | "breakout" | "discover" | "saved";
   country?: string[];
   source?: string[];
   tag?: string[];
@@ -117,14 +123,6 @@ export const api = {
 
   me: () => request<{ id: string; email: string }>("/auth/me"),
 
-  profile: () => request<Record<string, unknown>>("/auth/profile"),
-
-  updateProfile: (payload: Record<string, unknown>) =>
-    request<Record<string, unknown>>("/auth/profile", {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    }),
-
   countries: (q?: string, supportedOnly = false) =>
     request<Country[]>(
       `/countries${qs({ q, supported_only: supportedOnly || undefined })}`,
@@ -145,6 +143,54 @@ export const api = {
     request<SignalPage>(`/signals${qs(query as Record<string, unknown>)}`),
 
   signal: (id: string) => request<SignalDetail>(`/signals/${id}`),
+
+  related: (id: string, limit = 6) =>
+    request<Signal[]>(`/signals/${id}/related${qs({ limit })}`),
+
+  discover: (query: {
+    limit?: number;
+    country?: string;
+    source?: string;
+    tag?: string;
+  } = {}) =>
+    request<{ items: Signal[]; total: number }>(
+      `/discover${qs(query as Record<string, unknown>)}`,
+    ),
+
+  stats: () => request<PublicStats>("/stats"),
+
+  profile: () => request<Profile>("/auth/profile"),
+
+  updateProfile: (payload: Record<string, unknown>) =>
+    request<Profile>("/auth/profile", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  notificationStatus: () => request<NotificationStatus>("/notifications/telegram/status"),
+
+  linkTelegram: (chatId: string) =>
+    request<{ ok: boolean }>(`/notifications/telegram/link${qs({ chat_id: chatId })}`, {
+      method: "POST",
+    }),
+
+  pushPublicKey: () =>
+    request<{ public_key: string }>("/notifications/push/public-key"),
+
+  subscribePush: (payload: {
+    endpoint: string;
+    keys: Record<string, string>;
+  }) =>
+    request<{ ok: boolean }>("/notifications/push/subscribe", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  unsubscribePush: (endpoint: string) =>
+    request<{ ok: boolean }>("/notifications/push/subscribe", {
+      method: "DELETE",
+      body: JSON.stringify({ endpoint }),
+    }),
 
   history: (id: string) =>
     request<{ signal_id: string; points: Record<string, unknown>[] }>(
@@ -192,19 +238,31 @@ export const api = {
       method: "POST",
     }),
 
+  radarSummary: (id: string) =>
+    request<RadarSummary>(`/radars/${id}/summary`),
+
   customTags: () => request<CustomTag[]>("/custom-tags"),
 
-  createCustomTag: (payload: Record<string, unknown>) =>
+  customTagPreview: (draft: CustomTagDraft) =>
+    request<{ matched: number }>("/custom-tags/preview", {
+      method: "POST",
+      body: JSON.stringify(draft),
+    }),
+
+  createCustomTag: (payload: CustomTagDraft) =>
     request<CustomTag>("/custom-tags", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
 
+  updateCustomTag: (id: string, payload: CustomTagDraft) =>
+    request<CustomTag>(`/custom-tags/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
   deleteCustomTag: (id: string) =>
     request<void>(`/custom-tags/${id}`, { method: "DELETE" }),
-
-  pushPublicKey: () =>
-    request<{ public_key: string }>("/notifications/push/public-key"),
 
   collectNow: (countries?: string) =>
     request<Record<string, unknown>>(`/system/collect${qs({ countries })}`, {

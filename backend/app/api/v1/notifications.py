@@ -104,6 +104,69 @@ async def list_deliveries(session: SessionDep, user: CurrentUser, limit: int = 5
     )
 
 
+@router.post("/push/subscribe")
+async def subscribe_push(
+    payload: dict, user: CurrentUser, session: SessionDep
+):
+    """Register a browser push subscription for this user."""
+    endpoint = payload.get("endpoint")
+    keys = payload.get("keys") or {}
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="endpoint is required")
+
+    profile = user.profile
+    if profile is None:
+        profile = UserProfile(user_id=user.id)
+        session.add(profile)
+
+    subs = [
+        s
+        for s in (profile.push_subscriptions or [])
+        if isinstance(s, dict) and s.get("endpoint") != endpoint
+    ]
+    subs.append({"endpoint": endpoint, "keys": keys})
+    profile.push_subscriptions = subs
+    await session.commit()
+    return {
+        "ok": True,
+        "subscriptions": len(subs),
+        "configured": bool(settings.vapid_private_key),
+    }
+
+
+@router.delete("/push/subscribe")
+async def unsubscribe_push(
+    payload: dict, user: CurrentUser, session: SessionDep
+):
+    endpoint = payload.get("endpoint")
+    profile = user.profile
+    if profile is None:
+        return {"ok": True, "subscriptions": 0}
+    profile.push_subscriptions = [
+        s
+        for s in (profile.push_subscriptions or [])
+        if isinstance(s, dict) and s.get("endpoint") != endpoint
+    ]
+    await session.commit()
+    return {
+        "ok": True,
+        "subscriptions": len(profile.push_subscriptions),
+        "configured": bool(settings.vapid_private_key),
+    }
+
+
+@router.get("/telegram/status")
+async def telegram_status(user: CurrentUser):
+    """Honest status: linked chat + whether the bot token is configured."""
+    profile = user.profile
+    return {
+        "linked": bool(profile and profile.telegram_chat_id),
+        "chat_id": profile.telegram_chat_id if profile else None,
+        "bot_configured": bool(settings.telegram_bot_token),
+        "push_configured": bool(settings.vapid_private_key),
+    }
+
+
 @router.post("/telegram/link")
 async def link_telegram(chat_id: str, user: CurrentUser, session: SessionDep):
     profile = user.profile

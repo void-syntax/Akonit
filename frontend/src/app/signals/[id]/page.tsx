@@ -1,135 +1,125 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { ActivityChart } from "@/components/ActivityChart";
+import { SignalCard } from "@/components/SignalCard";
+import {
+  BookmarkIcon,
+  BoltIcon,
+  ExternalIcon,
+  LayersIcon,
+  PauseIcon,
+  SparkIcon,
+  TrendingUpIcon,
+} from "@/components/icons";
 import { api } from "@/lib/api";
 import {
   STATUS_META,
-  compact,
+  countryName,
   formatActivity,
   formatGrowth,
+  sourceColor,
   sourceName,
   strengthTone,
   timeAgo,
 } from "@/lib/format";
-import type { SignalDetail } from "@/lib/types";
+import type { Signal, SignalDetail } from "@/lib/types";
 
-function Sparkline({ points }: { points: { t: string; activity: number }[] }) {
-  if (points.length < 2) {
-    return (
-      <p className="dim" style={{ fontSize: "0.8rem" }}>
-        Collecting history — the chart appears after the second snapshot.
-      </p>
-    );
-  }
-
-  const values = points.map((p) => p.activity);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const width = 600;
-  const height = 120;
-
-  const coords = values.map((value, index) => ({
-    x: (index / (values.length - 1)) * width,
-    y: height - ((value - min) / span) * (height - 16) - 8,
-  }));
-
-  return (
-    <div>
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        width="100%"
-        height={height}
-        role="img"
-        aria-label="Activity history"
-      >
-        <polyline
-          points={coords
-            .map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`)
-            .join(" ")}
-          fill="none"
-          stroke="var(--accent)"
-          strokeWidth="2"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-        {coords.map((c, index) => (
-          <circle
-            key={index}
-            cx={c.x}
-            cy={c.y}
-            r={2.5}
-            fill="var(--accent)"
-            opacity={0.7}
-          />
-        ))}
-      </svg>
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <span className="dim mono" style={{ fontSize: "0.72rem" }}>
-          {timeAgo(points[0].t)}
-        </span>
-        <span className="dim mono" style={{ fontSize: "0.72rem" }}>
-          {compact(max)} peak
-        </span>
-        <span className="dim mono" style={{ fontSize: "0.72rem" }}>
-          now
-        </span>
-      </div>
-    </div>
-  );
-}
-
+const STATUS_ICON = {
+  spark: SparkIcon,
+  trending: TrendingUpIcon,
+  bolt: BoltIcon,
+  pause: PauseIcon,
+} as const;
 
 export default function SignalPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+
   const [signal, setSignal] = useState<SignalDetail | null>(null);
+  const [related, setRelated] = useState<Signal[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     void (async () => {
       try {
-        const data = await api.signal(params.id);
-        setSignal(data);
-        setSaved(data.is_saved);
+        const detail = await api.signal(params.id);
+        setSignal(detail);
+        setSaved(detail.is_saved);
+        setMuted(detail.is_ignored);
+        try {
+          setRelated(await api.related(params.id, 4));
+        } catch {
+          setRelated([]);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Signal not found");
       }
     })();
   }, [params.id]);
 
-  if (error) {
+  async function toggleSave() {
+    if (!signal) return;
+    setBusy(true);
+    try {
+      if (saved) {
+        await api.unsave(signal.id);
+        setSaved(false);
+      } else {
+        await api.save(signal.id);
+        setSaved(true);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleMute() {
+    if (!signal) return;
+    setBusy(true);
+    try {
+      if (muted) {
+        await api.unmute(signal.id);
+        setMuted(false);
+      } else {
+        await api.mute(signal.id);
+        setMuted(true);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error && !signal) {
     return (
       <div className="empty">
         <div className="empty-title">Signal unavailable</div>
-        <p className="muted">{error}</p>
-        <button
-          className="btn"
-          style={{ marginTop: 14 }}
-          onClick={() => router.back()}
-        >
-          Back
-        </button>
+        <p className="empty-text">{error}</p>
+        <Link className="btn" href="/">
+          Back to feed
+        </Link>
       </div>
     );
   }
 
   if (!signal) return <p className="muted">Loading signal…</p>;
 
-  const status = STATUS_META[signal.status] ?? STATUS_META.NEW;
+  const meta = STATUS_META[signal.status] ?? STATUS_META.NEW;
+  const StatusIcon = STATUS_ICON[meta.icon as keyof typeof STATUS_ICON];
   const tone = strengthTone(signal.strength);
 
-  const meta: [string, string][] = [
+  const metrics: [string, string][] = [
     ["Category", signal.category ?? "—"],
-    [
-      "Country",
-      `${signal.flag ?? "🌐"} ${signal.country_name ?? signal.country_code ?? "Global"}`,
-    ],
+    ["Country", `${signal.flag ?? "🌐"} ${countryName(signal.country_code)}`],
     ["Source", sourceName(signal.source_id)],
-    ["First seen", timeAgo(signal.first_seen_at)],
+    ["First detected", timeAgo(signal.first_seen_at)],
+    ["Signal age", timeAgo(signal.first_seen_at)],
     ["Last seen", timeAgo(signal.last_seen_at)],
     [
       "Current activity",
@@ -142,24 +132,30 @@ export default function SignalPage() {
     ["Growth", formatGrowth(signal.growth)],
     ["Acceleration", formatGrowth(signal.acceleration)],
     ["Strength", `${Math.round(signal.strength)}/100`],
-    ["Status", status.label],
     ["Cross-source", String(signal.cross_source_count)],
   ];
 
   return (
     <>
-      <button className="btn btn-sm" onClick={() => router.back()}>
-        ← Back
-      </button>
+      <div className="row" style={{ marginBottom: "var(--s3)" }}>
+        <button className="btn btn-sm btn-ghost" onClick={() => router.back()}>
+          ← Back
+        </button>
+      </div>
 
-      <div className="card" style={{ marginTop: 12 }}>
+      <div className="panel">
         <div className="card-top">
-          <span className={`badge badge-${status.className}`}>
-            {status.emoji} {status.label}
+          <span className={`badge badge-${meta.tone}`}>
+            <StatusIcon size={13} />
+            {meta.label}
           </span>
-          <span className="badge badge-meta">
-            {signal.flag ?? "🌐"}{" "}
-            {signal.country_name ?? signal.country_code ?? "Global"} ·{" "}
+          <span className="badge badge-neutral">
+            {signal.flag ?? "🌐"} {countryName(signal.country_code)}
+          </span>
+          <span
+            className="badge badge-neutral"
+            style={{ color: sourceColor(signal.source_id) }}
+          >
             {sourceName(signal.source_id)}
           </span>
           <span
@@ -170,12 +166,19 @@ export default function SignalPage() {
           </span>
         </div>
 
-        <h1 style={{ fontSize: "1.2rem", lineHeight: 1.35, margin: "0 0 10px" }}>
+        <h1
+          style={{
+            fontSize: "var(--t-21)",
+            lineHeight: 1.32,
+            margin: "0 0 var(--s2)",
+            letterSpacing: "-0.02em",
+          }}
+        >
           {signal.title}
         </h1>
 
         {signal.description && (
-          <p className="muted" style={{ fontSize: "0.9rem", marginTop: 0 }}>
+          <p className="muted text-sm" style={{ margin: "0 0 var(--s3)" }}>
             {signal.description}
           </p>
         )}
@@ -190,7 +193,7 @@ export default function SignalPage() {
           </div>
         )}
 
-        <div className="card-foot">
+        <div className="row" style={{ marginTop: "var(--s3)" }}>
           <span className="strength">
             <span className="strength-bar">
               <span
@@ -203,80 +206,90 @@ export default function SignalPage() {
           </span>
           <div className="spacer" />
           <a
-            className="btn btn-sm btn-primary"
+            className="btn btn-primary"
             href={signal.source_url}
             target="_blank"
             rel="noopener noreferrer"
           >
-            Open Original Source
+            Open original source <ExternalIcon size={14} />
           </a>
           <button
-            className="btn btn-sm"
+            className="btn"
             data-active={saved}
-            onClick={async () => {
-              if (saved) await api.unsave(signal.id);
-              else await api.save(signal.id);
-              setSaved(!saved);
-            }}
+            onClick={toggleSave}
+            disabled={busy}
           >
-            {saved ? "🔖 Saved" : "🔖 Save"}
+            <BookmarkIcon size={14} filled={saved} /> {saved ? "Saved" : "Save"}
+          </button>
+          <button
+            className="btn"
+            data-active={muted}
+            onClick={toggleMute}
+            disabled={busy}
+          >
+            <PauseIcon size={14} /> {muted ? "Hidden" : "Mute"}
           </button>
         </div>
       </div>
 
-      <div className="section-title">HISTORY</div>
-      <div className="card">
-        <Sparkline
+      <div className="section-title">Activity history</div>
+      <div className="panel">
+        <ActivityChart
           points={signal.snapshots.map((s) => ({
             t: s.captured_at,
             activity: s.activity,
           }))}
         />
+
+        {signal.snapshots.length > 0 && (
+          <div className="metric-grid" style={{ marginTop: "var(--s4)" }}>
+            {signal.snapshots.slice(-4).reverse().map((s) => (
+              <div className="metric" key={s.captured_at}>
+                <div className="metric-label">{timeAgo(s.captured_at)}</div>
+                <div className="metric-value mono">
+                  {formatActivity(s.activity, signal.activity_metric)}
+                </div>
+                <div
+                  className="text-xs mono"
+                  style={{
+                    color: s.growth > 0 ? "var(--ok)" : "var(--text-3)",
+                  }}
+                >
+                  {formatGrowth(s.growth)} · str {Math.round(s.strength)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="section-title">DETAILS</div>
-      <div className="card">
-        <div className="stack">
-          {meta.map(([label, value]) => (
-            <div className="row" key={label}>
-              <span className="dim" style={{ fontSize: "0.8rem", minWidth: 140 }}>
-                {label}
-              </span>
-              <span className="mono" style={{ fontSize: "0.85rem" }}>
-                {value}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="section-title">SOURCE INFORMATION</div>
-      <div className="card">
-        <div className="stack">
-          {signal.snapshots.slice(-6).map((s) => (
-            <div className="row" key={s.captured_at} style={{ fontSize: "0.8rem" }}>
-              <span className="dim mono">{timeAgo(s.captured_at)}</span>
-              <span className="mono">
-                {formatActivity(s.activity, signal.activity_metric)}
-              </span>
-              <span
-                className="mono"
-                style={{
-                  color: s.growth > 0 ? "var(--success)" : "var(--text-muted)",
-                }}
+      <div className="section-title">Details</div>
+      <div className="panel">
+        <div className="metric-grid">
+          {metrics.map(([label, value]) => (
+            <div className="metric" key={label}>
+              <div className="metric-label">{label}</div>
+              <div
+                className="metric-value mono"
+                style={{ fontSize: "var(--t-15)" }}
               >
-                {formatGrowth(s.growth)}
-              </span>
-              <span className="dim mono">strength {Math.round(s.strength)}</span>
+                {value}
+              </div>
             </div>
           ))}
-          {signal.snapshots.length === 0 && (
-            <p className="dim" style={{ fontSize: "0.82rem" }}>
-              No snapshots recorded yet.
-            </p>
-          )}
         </div>
       </div>
+
+      {related.length > 0 && (
+        <>
+          <div className="section-title">
+            <LayersIcon size={13} /> Related signals
+          </div>
+          {related.map((item) => (
+            <SignalCard key={item.id} signal={item} signedIn={false} />
+          ))}
+        </>
+      )}
     </>
   );
 }

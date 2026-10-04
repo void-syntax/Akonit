@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
+import { CloseIcon, PlusIcon } from "@/components/icons";
 import type {
   Condition,
   ConditionGroup,
@@ -17,9 +18,12 @@ interface Props {
   countries: Country[];
   sources: SourceInfo[];
   tags: Tag[];
+  previewCount?: number | null;
 }
 
-const TYPES: { value: ConditionType; label: string }[] = [
+type ConditionKind = ConditionType;
+
+const KINDS: { value: ConditionKind; label: string }[] = [
   { value: "COUNTRY", label: "Country" },
   { value: "SOURCE", label: "Source" },
   { value: "TAG", label: "Tag" },
@@ -31,34 +35,31 @@ const TYPES: { value: ConditionType; label: string }[] = [
   { value: "STRENGTH", label: "Strength" },
 ];
 
-const NUMERIC: ConditionType[] = ["GROWTH", "ACTIVITY", "STRENGTH"];
-const LIST_TYPES: ConditionType[] = [
-  "COUNTRY",
-  "SOURCE",
-  "TAG",
-  "KEYWORD",
-  "STATUS",
-];
+const NUMERIC_KINDS: ConditionKind[] = ["GROWTH", "ACTIVITY", "STRENGTH"];
 
-function isGroup(item: ConditionGroup | Condition): item is ConditionGroup {
+export function makeCondition(kind: ConditionKind): Condition {
+  switch (kind) {
+    case "GROWTH":
+      return { type: kind, operator: "GT", value: 100 };
+    case "AGE":
+      return { type: kind, operator: "LT", value: 24, unit: "hours" };
+    case "ACTIVITY":
+      return { type: kind, operator: "GT", value: 1000 };
+    case "STRENGTH":
+      return { type: kind, operator: "GT", value: 50 };
+    case "STATUS":
+      return { type: kind, operator: "IN", value: ["RISING", "BREAKOUT"] };
+    default:
+      return { type: kind, operator: "IN", value: [] };
+  }
+}
+
+export function isGroup(item: ConditionGroup | Condition): item is ConditionGroup {
   return "op" in item && "children" in item;
 }
 
-function newCondition(type: ConditionType): Condition {
-  switch (type) {
-    case "GROWTH":
-      return { type, operator: "GT", value: 100 };
-    case "AGE":
-      return { type, operator: "LT", value: 24, unit: "hours" };
-    case "ACTIVITY":
-      return { type, operator: "GT", value: 1000 };
-    case "STRENGTH":
-      return { type, operator: "GT", value: 50 };
-    case "STATUS":
-      return { type, operator: "IN", value: ["RISING", "BREAKOUT"] };
-    default:
-      return { type, operator: "IN", value: [] };
-  }
+export function listValue(condition: Condition): string[] {
+  return Array.isArray(condition.value) ? (condition.value as string[]) : [];
 }
 
 export function ConditionBuilder({
@@ -67,9 +68,16 @@ export function ConditionBuilder({
   countries,
   sources,
   tags,
+  previewCount,
 }: Props) {
-  function addCondition(type: ConditionType) {
-    onChange({ ...value, children: [...value.children, newCondition(type)] });
+  const [kind, setKind] = useState<ConditionKind>("COUNTRY");
+  const [countryQuery, setCountryQuery] = useState("");
+  const [tagQuery, setTagQuery] = useState("");
+
+  const leaves = value.children.filter((c) => !isGroup(c));
+
+  function addCondition() {
+    onChange({ ...value, children: [...value.children, makeCondition(kind)] });
   }
 
   function updateCondition(index: number, next: Condition) {
@@ -86,43 +94,72 @@ export function ConditionBuilder({
     });
   }
 
-  const countryOptions = useMemo(() => countries.slice(0, 120), [countries]);
+  const filteredCountries = useMemo(() => {
+    const term = countryQuery.trim().toLowerCase();
+    const list = term
+      ? countries.filter(
+          (c) =>
+            c.name.toLowerCase().includes(term) ||
+            c.code.toLowerCase() === term,
+        )
+      : countries;
+    return list.slice(0, 120);
+  }, [countries, countryQuery]);
+
+  const filteredTags = useMemo(() => {
+    const term = tagQuery.trim().toLowerCase();
+    const list = term
+      ? tags.filter(
+          (t) =>
+            t.name.toLowerCase().includes(term) || t.slug.includes(term),
+        )
+      : tags;
+    return list.slice(0, 160);
+  }, [tags, tagQuery]);
 
   return (
-    <div>
-      <div className="row" style={{ marginBottom: 12 }}>
+    <div className="builder">
+      <div className="builder-head">
         <span className="join-pill">WHEN</span>
-        <span className="muted" style={{ fontSize: "0.84rem" }}>
-          signals match
-        </span>
+        <span className="muted text-sm">signals match</span>
         <div className="spacer" />
-        <span className="join-pill">
+        <div className="logic-toggle">
           <button
+            data-active={value.op === "AND"}
             onClick={() => onChange({ ...value, op: "AND" })}
-            style={{ color: value.op === "AND" ? "var(--accent)" : undefined }}
+            type="button"
           >
             AND
           </button>
-          <span className="dim">/</span>
           <button
+            data-active={value.op === "OR"}
             onClick={() => onChange({ ...value, op: "OR" })}
-            style={{ color: value.op === "OR" ? "var(--accent)" : undefined }}
+            type="button"
           >
             OR
           </button>
-        </span>
+        </div>
+        <button
+          className="chip"
+          data-active={value.is_exclude}
+          onClick={() => onChange({ ...value, is_exclude: !value.is_exclude })}
+          type="button"
+        >
+          {value.is_exclude ? "EXCLUDE ON" : "EXCLUDE OFF"}
+        </button>
       </div>
 
-      <div className="builder-group">
-        {value.children.length === 0 && (
-          <p className="dim" style={{ margin: "4px 0 10px", fontSize: "0.84rem" }}>
-            No conditions yet — add countries, sources, tags or a growth threshold.
+      <div className="builder-body">
+        {leaves.length === 0 && (
+          <p className="dim text-sm" style={{ marginTop: 0 }}>
+            No conditions yet. Add countries, sources, tags or a growth
+            threshold below.
           </p>
         )}
 
         {value.children.map((child, index) =>
           isGroup(child) ? (
-            <div key={`g${index}`} className="muted" style={{ padding: "7px 0" }}>
+            <div key={`g${index}`} className="muted text-sm">
               nested group ({child.op})
             </div>
           ) : (
@@ -130,176 +167,210 @@ export function ConditionBuilder({
               key={`c${index}`}
               condition={child}
               position={index}
+              countries={filteredCountries}
+              countryQuery={countryQuery}
+              onCountryQuery={setCountryQuery}
+              sources={sources}
+              tags={filteredTags}
+              tagQuery={tagQuery}
+              onTagQuery={setTagQuery}
               onChange={(next) => updateCondition(index, next)}
               onRemove={() => removeCondition(index)}
-              countries={countryOptions}
-              sources={sources}
-              tags={tags}
             />
           ),
         )}
-      </div>
 
-      <span className="field-label">Add condition</span>
-      <div className="row" style={{ marginTop: 8 }}>
-        {TYPES.map((t) => (
-          <button
-            key={t.value}
-            className="btn btn-sm"
-            onClick={() => addCondition(t.value)}
+        <div className="row" style={{ marginTop: "var(--s3)" }}>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as ConditionKind)}
+            style={{ maxWidth: 170 }}
           >
-            + {t.label}
+            {KINDS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-sm" onClick={addCondition} type="button">
+            <PlusIcon size={13} /> Add condition
           </button>
-        ))}
-      </div>
-
-      <div className="row" style={{ marginTop: 16 }}>
-        <span className="join-pill" style={{ borderColor: "rgba(255,77,94,0.4)" }}>
-          <button
-            onClick={() => onChange({ ...value, is_exclude: !value.is_exclude })}
-          >
-            {value.is_exclude ? "EXCLUDE ON" : "EXCLUDE OFF"}
-          </button>
-        </span>
-        <span className="dim" style={{ fontSize: "0.76rem" }}>
-          {value.is_exclude
-            ? "Signals matching these conditions will be rejected."
-            : "Turn this on to use the group as an exclusion rule."}
-        </span>
+          {previewCount !== null && previewCount !== undefined && (
+            <span className="badge badge-accent" style={{ marginLeft: "auto" }}>
+              {previewCount} signals match right now
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function MultiSelect({
-  value,
-  onChange,
-  children,
-}: {
-  value: string[];
-  onChange: (next: string[]) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <select
-      className="field"
-      multiple
-      size={4}
-      value={value}
-      onChange={(e) =>
-        onChange(Array.from(e.target.selectedOptions).map((o) => o.value))
-      }
-    >
-      {children}
-    </select>
-  );
+interface RowProps {
+  condition: Condition;
+  position: number;
+  countries: Country[];
+  countryQuery: string;
+  onCountryQuery: (next: string) => void;
+  sources: SourceInfo[];
+  tags: Tag[];
+  tagQuery: string;
+  onTagQuery: (next: string) => void;
+  onChange: (next: Condition) => void;
+  onRemove: () => void;
 }
 
 function ConditionRow({
   condition,
   position,
-  onChange,
-  onRemove,
   countries,
+  countryQuery,
+  onCountryQuery,
   sources,
   tags,
-}: {
-  condition: Condition;
-  position: number;
-  onChange: (next: Condition) => void;
-  onRemove: () => void;
-  countries: Country[];
-  sources: SourceInfo[];
-  tags: Tag[];
-}) {
-  const isList = LIST_TYPES.includes(condition.type);
-  const isNumeric = NUMERIC.includes(condition.type);
-  const listValue = Array.isArray(condition.value)
-    ? (condition.value as string[])
-    : [];
+  tagQuery,
+  onTagQuery,
+  onChange,
+  onRemove,
+}: RowProps) {
+  const selected = listValue(condition);
+  const numeric = NUMERIC_KINDS.includes(condition.type);
 
-  const patch = (next: Partial<Condition>) => onChange({ ...condition, ...next });
+  function toggle(value: string) {
+    const next = selected.includes(value)
+      ? selected.filter((v) => v !== value)
+      : [...selected, value];
+    onChange({ ...condition, value: next });
+  }
 
   return (
-    <div className="builder-row">
-      <span className="join-pill">
-        {position === 0 ? "IF" : condition.operator === "NOT_IN" ? "EXCL" : "AND"}
+    <div className="condition">
+      <span className="rule-join">
+        {position === 0
+          ? "IF"
+          : condition.operator === "NOT_IN"
+            ? "EXCLUDE"
+            : "AND"}
       </span>
 
       <select
-        className="field"
         value={condition.type}
-        onChange={(e) => onChange(newCondition(e.target.value as ConditionType))}
-        style={{ maxWidth: 150 }}
+        onChange={(e) => onChange(makeCondition(e.target.value as ConditionKind))}
+        style={{ maxWidth: 140 }}
       >
-        {TYPES.map((t) => (
-          <option key={t.value} value={t.value}>
-            {t.label}
+        {KINDS.map((item) => (
+          <option key={item.value} value={item.value}>
+            {item.label}
           </option>
         ))}
       </select>
 
       <select
-        className="field"
         value={condition.operator}
         onChange={(e) =>
-          patch({ operator: e.target.value as Condition["operator"] })
+          onChange({
+            ...condition,
+            operator: e.target.value as Condition["operator"],
+          })
         }
-        style={{ maxWidth: 140 }}
+        style={{ maxWidth: 130 }}
       >
-        <option value="IN">is one of</option>
-        <option value="NOT_IN">is NOT one of</option>
-        <option value="GT">is greater than</option>
-        <option value="LT">is less than</option>
+        <option value="IN">is any of</option>
+        <option value="NOT_IN">is none of</option>
+        <option value="GT">is above</option>
+        <option value="LT">is below</option>
       </select>
 
-      {isList && condition.type === "COUNTRY" && (
-        <MultiSelect value={listValue} onChange={(v) => patch({ value: v })}>
-          {countries.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.flag} {c.name}
-            </option>
-          ))}
-        </MultiSelect>
+      {condition.type === "COUNTRY" && (
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <input
+            placeholder="Search countries…"
+            value={countryQuery}
+            onChange={(e) => onCountryQuery(e.target.value)}
+            style={{ marginBottom: 6 }}
+          />
+          <div className="chip-picker">
+            {countries.map((c) => (
+              <button
+                key={c.code}
+                type="button"
+                className="chip"
+                data-active={selected.includes(c.code)}
+                onClick={() => toggle(c.code)}
+              >
+                {c.flag} {c.name}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
-      {isList && condition.type === "SOURCE" && (
-        <MultiSelect value={listValue} onChange={(v) => patch({ value: v })}>
+      {condition.type === "SOURCE" && (
+        <div className="chip-picker" style={{ flex: 1, minWidth: 240 }}>
           {sources.map((s) => (
-            <option key={s.id} value={s.id}>
+            <button
+              key={s.id}
+              type="button"
+              className="chip"
+              data-active={selected.includes(s.id)}
+              onClick={() => toggle(s.id)}
+              title={s.description ?? s.name}
+            >
               {s.name}
-            </option>
+            </button>
           ))}
-        </MultiSelect>
+        </div>
       )}
 
-      {isList && condition.type === "TAG" && (
-        <MultiSelect value={listValue} onChange={(v) => patch({ value: v })}>
-          {tags.map((t) => (
-            <option key={t.slug} value={t.slug}>
-              {t.emoji} {t.name}
-            </option>
-          ))}
-        </MultiSelect>
+      {condition.type === "TAG" && (
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <input
+            placeholder="Search tags…"
+            value={tagQuery}
+            onChange={(e) => onTagQuery(e.target.value)}
+            style={{ marginBottom: 6 }}
+          />
+          <div className="chip-picker">
+            {tags.map((t) => (
+              <button
+                key={t.slug}
+                type="button"
+                className="chip"
+                data-active={selected.includes(t.slug)}
+                onClick={() => toggle(t.slug)}
+              >
+                {t.emoji} {t.name}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
-      {isList && condition.type === "STATUS" && (
-        <MultiSelect value={listValue} onChange={(v) => patch({ value: v })}>
+      {condition.type === "STATUS" && (
+        <div className="chip-picker" style={{ flex: 1, minWidth: 200 }}>
           {["NEW", "RISING", "BREAKOUT", "FADING"].map((s) => (
-            <option key={s} value={s}>
+            <button
+              key={s}
+              type="button"
+              className="chip"
+              data-active={selected.includes(s)}
+              onClick={() => toggle(s)}
+            >
               {s}
-            </option>
+            </button>
           ))}
-        </MultiSelect>
+        </div>
       )}
 
       {condition.type === "KEYWORD" && (
         <input
           className="field"
+          style={{ flex: 1, minWidth: 200 }}
           placeholder="comma separated keywords"
-          value={listValue.join(", ")}
+          value={selected.join(", ")}
           onChange={(e) =>
-            patch({
+            onChange({
+              ...condition,
               value: e.target.value
                 .split(",")
                 .map((v) => v.trim())
@@ -309,29 +380,35 @@ function ConditionRow({
         />
       )}
 
-      {isNumeric && (
-        <input
-          className="field"
-          type="number"
-          value={String(condition.value ?? "")}
-          onChange={(e) => patch({ value: Number(e.target.value) || 0 })}
-          style={{ maxWidth: 110 }}
-        />
+      {numeric && (
+        <div className="slider-row" style={{ flex: 1, minWidth: 220 }}>
+          <input
+            type="range"
+            min={0}
+            max={condition.type === "GROWTH" ? 1000 : 100000}
+            step={condition.type === "GROWTH" ? 5 : 100}
+            value={Number(condition.value ?? 0)}
+            onChange={(e) => onChange({ ...condition, value: Number(e.target.value) })}
+          />
+          <span className="slider-value">
+            {Number(condition.value ?? 0)}
+            {condition.type === "GROWTH" ? "%" : ""}
+          </span>
+        </div>
       )}
 
       {condition.type === "AGE" && (
         <>
           <input
-            className="field"
             type="number"
-            value={String(condition.value ?? "")}
-            onChange={(e) => patch({ value: Number(e.target.value) || 0 })}
-            style={{ maxWidth: 100 }}
+            min={1}
+            value={Number(condition.value ?? 24)}
+            onChange={(e) => onChange({ ...condition, value: Number(e.target.value) })}
+            style={{ maxWidth: 90 }}
           />
           <select
-            className="field"
             value={condition.unit ?? "hours"}
-            onChange={(e) => patch({ unit: e.target.value })}
+            onChange={(e) => onChange({ ...condition, unit: e.target.value })}
             style={{ maxWidth: 110 }}
           >
             <option value="minutes">minutes</option>
@@ -341,8 +418,13 @@ function ConditionRow({
         </>
       )}
 
-      <button className="btn btn-sm btn-icon" onClick={onRemove} aria-label="Remove">
-        ✕
+      <button
+        className="btn btn-sm btn-icon"
+        type="button"
+        onClick={onRemove}
+        aria-label="Remove condition"
+      >
+        <CloseIcon size={13} />
       </button>
     </div>
   );

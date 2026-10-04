@@ -144,24 +144,32 @@ class CustomTagMatcher:
         text = document.text
         tokens = document.tokens
         doc_hashtags = {normalize_text(h).lstrip("#") for h in document.hashtags}
+        country = document.source_metadata.get("country_code")
+        source = document.source_metadata.get("source_id")
+
         matches: list[TagMatch] = []
 
         for tag in self.custom_tags:
             if not tag.get("is_active", True):
                 continue
 
-            excludes = [normalize_text(e) for e in (tag.get("excludes") or [])]
-            if any(ex and ex in text for ex in excludes):
+            # --- exclusions run first: they always win ---
+            if _any_present(tag.get("exclude_hashtags"), doc_hashtags):
+                continue
+            if _any_in_text(tag.get("excludes"), text):
+                continue
+            excluded_countries = {
+                str(c).upper() for c in (tag.get("exclude_countries") or [])
+            }
+            if country and str(country).upper() in excluded_countries:
                 continue
 
-            scopes = tag.get("country_codes") or []
-            if scopes and document.source_metadata.get("country_code") not in scopes:
+            # --- scope ---
+            scope_countries = [str(c).upper() for c in (tag.get("country_codes") or [])]
+            if scope_countries and country and str(country).upper() not in scope_countries:
                 continue
-            source_scopes = tag.get("source_ids") or []
-            if (
-                source_scopes
-                and document.source_metadata.get("source_id") not in source_scopes
-            ):
+            scope_sources = tag.get("source_ids") or []
+            if scope_sources and source and source not in scope_sources:
                 continue
 
             matched_by = None
@@ -172,7 +180,9 @@ class CustomTagMatcher:
                     break
 
             if matched_by is None:
-                for keyword in tag.get("keywords") or []:
+                for keyword in list(tag.get("keywords") or []) + list(
+                    tag.get("aliases") or []
+                ):
                     clean = normalize_text(keyword)
                     if not clean:
                         continue
@@ -189,6 +199,22 @@ class CustomTagMatcher:
                     )
                 )
         return matches
+
+
+def _any_present(needles: list[str] | None, haystack: set[str]) -> bool:
+    for needle in needles or []:
+        clean = normalize_text(needle).lstrip("#")
+        if clean and clean in haystack:
+            return True
+    return False
+
+
+def _any_in_text(needles: list[str] | None, text: str) -> bool:
+    for needle in needles or []:
+        clean = normalize_text(needle)
+        if clean and clean in text:
+            return True
+    return False
 
 
 def build_default_matcher() -> KeywordTagMatcher:

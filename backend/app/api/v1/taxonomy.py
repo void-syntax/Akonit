@@ -179,16 +179,8 @@ async def create_custom_tag(
 ):
     tag = CustomTag(
         user_id=user.id,
-        name=payload.name,
         slug=slugify(payload.name),
-        keywords=[normalize_text(k) for k in payload.keywords if k.strip()],
-        hashtags=[
-            h.strip().lstrip("#").lower() for h in payload.hashtags if h.strip()
-        ],
-        country_codes=[c.upper() for c in payload.country_codes],
-        source_ids=payload.source_ids,
-        excludes=[normalize_text(e) for e in payload.excludes if e.strip()],
-        emoji=payload.emoji,
+        **_tag_fields(payload),
     )
     session.add(tag)
     await session.commit()
@@ -196,19 +188,89 @@ async def create_custom_tag(
     return tag
 
 
+def _tag_fields(payload: CustomTagCreate) -> dict:
+    """Normalise every custom-tag field in one place."""
+    return {
+        "name": payload.name,
+        "keywords": [normalize_text(k) for k in payload.keywords if k.strip()],
+        "aliases": [normalize_text(a) for a in payload.aliases if a.strip()],
+        "hashtags": [
+            h.strip().lstrip("#").lower() for h in payload.hashtags if h.strip()
+        ],
+        "country_codes": [c.upper() for c in payload.country_codes],
+        "source_ids": payload.source_ids,
+        "excludes": [normalize_text(e) for e in payload.excludes if e.strip()],
+        "exclude_hashtags": [
+            h.strip().lstrip("#").lower()
+            for h in payload.exclude_hashtags
+            if h.strip()
+        ],
+        "exclude_countries": [c.upper() for c in payload.exclude_countries],
+        "emoji": payload.emoji,
+    }
+
+
+@custom_router.post("/preview", response_model=dict)
+async def preview_custom_tag(
+    payload: CustomTagCreate, user: CurrentUser, session: SessionDep
+):
+    """Dry-run: how many stored signals would this custom tag match?"""
+    from app.pipeline.matching.tag_matcher import CustomTagMatcher, MatchDocument
+
+    fields = _tag_fields(payload)
+    matcher = CustomTagMatcher([{**fields, "slug": "preview", "is_active": True}])
+
+    from app.models import Signal
+    from app.models.enums import SignalStatus
+
+    signals = (
+        (
+            await session.execute(
+                select(Signal)
+                .where(Signal.status != SignalStatus.FADING)
+                .order_by(Signal.strength.desc())
+                .limit(400)
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+
+    hits = []
+    for signal in signals:
+        document = MatchDocument(
+            title=signal.title,
+            description=signal.description or "",
+            hashtags=signal.hashtags or [],
+            category=signal.category,
+            url=signal.source_url,
+            source_metadata={
+                "country_code": signal.country_code,
+                "source_id": signal.source_id,
+            },
+        )
+        if matcher.match(document):
+            hits.append(
+                {
+                    "id": signal.id,
+                    "title": signal.title,
+                    "strength": signal.strength,
+                    "country_code": signal.country_code,
+                    "source_id": signal.source_id,
+                }
+            )
+    return {"matched": len(hits), "items": hits[:20]}
+
+
 @custom_router.patch("/{tag_id}", response_model=CustomTagOut)
 async def update_custom_tag(
     tag_id: str, payload: CustomTagCreate, user: CurrentUser, session: SessionDep
 ):
     tag = await _get_custom_tag(session, user.id, tag_id)
-    tag.name = payload.name
     tag.slug = slugify(payload.name)
-    tag.keywords = [normalize_text(k) for k in payload.keywords if k.strip()]
-    tag.hashtags = [h.strip().lstrip("#").lower() for h in payload.hashtags if h.strip()]
-    tag.country_codes = [c.upper() for c in payload.country_codes]
-    tag.source_ids = payload.source_ids
-    tag.excludes = [normalize_text(e) for e in payload.excludes if e.strip()]
-    tag.emoji = payload.emoji
+    for field, value in _tag_fields(payload).items():
+        setattr(tag, field, value)
     await session.commit()
     await session.refresh(tag)
     return tag
