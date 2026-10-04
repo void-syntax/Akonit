@@ -17,6 +17,8 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tools._bootstrap import run as bootstrap_run  # noqa: E402
+
 from app.db.session import SessionLocal  # noqa: E402
 from app.services.pipeline_service import (  # noqa: E402
     refresh_signal_metrics,
@@ -57,4 +59,4 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    raise SystemExit(bootstrap_run(main()))

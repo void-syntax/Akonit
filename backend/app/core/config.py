@@ -23,9 +23,20 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-to-a-long-random-string"
     frontend_url: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000,http://localhost:8000"
+    api_public_url: str = "http://localhost:8000"
+
+    # --- Google OAuth ---
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = ""
 
     # --- infra ---
     database_url: str = "sqlite+aiosqlite:///./signal_radar.db"
+    database_url_fallback: str | None = None
+    db_probe_timeout_seconds: float = 5.0
+    """Used only when DATABASE_URL cannot be reached, e.g. a machine whose DNS
+    cannot resolve the database host. Must be set explicitly; nothing falls
+    back automatically in production."""
     redis_url: str | None = None
     db_echo: bool = False
 
@@ -64,14 +75,20 @@ class Settings(BaseSettings):
     detect_early_bonus_max: float = 25.0
     detect_persistence_windows: int = 2
     detect_min_absolute_activity: float = 5.0
+    # Smoothed velocity a signal must exceed before it can be called a breakout.
+    detect_breakout_velocity: float = 40.0
+    # Strength margin required before an established signal is demoted, which
+    # stops a single noisy window from flipping it back and forth.
+    detect_hysteresis: float = 8.0
 
     # scoring weights (sum to 100)
-    weight_growth: float = 26.0
-    weight_acceleration: float = 24.0
-    weight_recency: float = 20.0
-    weight_absolute: float = 12.0
-    weight_persistence: float = 10.0
-    weight_cross_source: float = 8.0
+    weight_growth: float = 18.0
+    weight_velocity: float = 22.0
+    weight_acceleration: float = 16.0
+    weight_recency: float = 14.0
+    weight_absolute: float = 8.0
+    weight_persistence: float = 12.0
+    weight_cross_source: float = 10.0
 
     # --- notifications ---
     vapid_public_key: str = ""

@@ -26,6 +26,12 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "exclude_hashtags": "JSON DEFAULT '[]'",
         "exclude_countries": "JSON DEFAULT '[]'",
     },
+    "signals": {
+        "velocity": "FLOAT DEFAULT 0.0",
+        "density_count": "INTEGER DEFAULT 1",
+        "matched_at": "TIMESTAMP",
+        "tags_updated_at": "TIMESTAMP",
+    },
 }
 
 

@@ -93,6 +93,18 @@ class ConditionType(CaseInsensitiveEnum):
     AGE = "AGE"
     STATUS = "STATUS"
     STRENGTH = "STRENGTH"
+    # Velocity is the smoothed rate of change, which is far more stable than
+    # raw growth and is what actually identifies a trend taking off.
+    VELOCITY = "VELOCITY"
+    # Independent confirmation that something is happening on more than one
+    # platform: the single strongest signal of a real trend.
+    CROSS_SOURCE = "CROSS_SOURCE"
+    # How many consecutive windows kept growing.
+    PERSISTENCE = "PERSISTENCE"
+    # How many signals share the same tag in the recent window (a burst).
+    DENSITY = "DENSITY"
+    # Fuzzy text search over title and description.
+    TEXT = "TEXT"
 
 
 class ConditionOperator(CaseInsensitiveEnum):
@@ -104,6 +116,8 @@ class ConditionOperator(CaseInsensitiveEnum):
     LTE = "LTE"
     EQ = "EQ"
     CONTAINS = "CONTAINS"
+    # Fuzzy containment for TEXT conditions (rapidfuzz partial ratio).
+    MATCHES = "MATCHES"
 
 
 class JoinType(CaseInsensitiveEnum):

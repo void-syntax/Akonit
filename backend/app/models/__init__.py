@@ -30,7 +30,7 @@ from app.models.radars import (
 from app.models.signals import Signal, SignalSnapshot
 from app.models.tags import CustomTag, SignalTag, Tag, TagAlias
 from app.models.taxonomy import Country, Source, SourceEvent
-from app.models.user import User, UserProfile
+from app.models.user import OAuthAccount, User, UserProfile
 
 __all__ = [
     "Base",
