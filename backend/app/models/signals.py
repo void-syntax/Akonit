@@ -83,6 +83,15 @@ class Signal(Base):
         DateTime(timezone=True)
     )
 
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    """When this signal may be deleted.
+
+    Freshness is the product: an unsaved signal lives for SIGNAL_TTL_HOURS and
+    is then removed. Saving a signal clears nothing here — the cleanup simply
+    skips anything present in saved_signals, so a bookmarked signal survives
+    forever and disappears only if the user unsaves it after expiry.
+    """
+
     tag_links: Mapped[list["SignalTag"]] = relationship(  # noqa: F821
         back_populates="signal", cascade="all, delete-orphan"
     )

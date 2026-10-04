@@ -96,6 +96,16 @@ class Settings(BaseSettings):
     vapid_subject: str = "mailto:admin@example.com"
     telegram_bot_token: str | None = None
 
+    # --- retention ---
+    # A signal is only interesting while it is fresh. Anything a user saved is
+    # kept forever; everything else disappears once it expires.
+    signal_ttl_hours: int = 24
+    source_event_ttl_hours: int = 48
+    delivery_ttl_days: int = 30
+    cleanup_batch_size: int = 2000
+    cleanup_max_rows_per_run: int = 10000
+    cleanup_interval_minutes: int = 60
+
     # --- matching ---
     fuzzy_match_threshold: float = 0.86
     dedup_similarity_threshold: float = 0.82

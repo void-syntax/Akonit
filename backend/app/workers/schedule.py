@@ -16,6 +16,7 @@ from app.core.logging import get_logger
 from app.db.session import SessionLocal, init_models
 from app.db.session import engine
 from app.workers.tasks import (
+    cleanup_task,
     refresh_metrics_task,
     run_collection_task,
     run_matching_task,
@@ -58,6 +59,12 @@ async def _cycle_metrics() -> None:
         logger.info("metrics refreshed for %d signals", count)
 
 
+async def _cycle_cleanup() -> None:
+    async with SessionLocal() as session:
+        result = await cleanup_task(session)
+        logger.info("cleanup finished: %s", result)
+
+
 async def main() -> None:
     await init_models()
     _install_signal_handlers()
@@ -92,6 +99,14 @@ async def main() -> None:
         "interval",
         seconds=settings.snapshot_interval_seconds,
         id="metrics",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        _cycle_cleanup,
+        "interval",
+        minutes=settings.cleanup_interval_minutes,
+        id="cleanup",
         max_instances=1,
         coalesce=True,
     )
