@@ -47,14 +47,14 @@ export default function RadarsPage() {
   if (!email) {
     return (
       <div className="empty">
-        <div className="empty-title">Radars need an account</div>
+        <div className="empty-title">Cannot reach the local API</div>
         <p className="empty-text">
-          A radar is your own set of conditions, monitored 24/7. Sign in to
-          create one &mdash; browsing signals stays public.
+          Radars need the collector running. Start it with{" "}
+          <code className="mono">docker compose up</code> and reload this page.
         </p>
-        <Link className="btn btn-primary" href="/login">
-          Sign in to create a radar
-        </Link>
+        <button className="btn btn-primary" onClick={() => location.reload()}>
+          Retry
+        </button>
       </div>
     );
   }

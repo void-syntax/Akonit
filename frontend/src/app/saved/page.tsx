@@ -36,14 +36,14 @@ export default function SavedPage() {
   if (!email) {
     return (
       <div className="empty">
-        <div className="empty-title">Sign in to save signals</div>
+        <div className="empty-title">Cannot reach the local API</div>
         <p className="empty-text">
-          Saving is personal. Browsing signals stays public &mdash; only your
-          account is needed for saving, radars and notifications.
+          Saved signals are stored in your local database. Start the collector
+          with <code className="mono">docker compose up</code> and reload.
         </p>
-        <Link className="btn btn-primary" href="/login">
-          Sign in
-        </Link>
+        <button className="btn btn-primary" onClick={() => location.reload()}>
+          Retry
+        </button>
       </div>
     );
   }

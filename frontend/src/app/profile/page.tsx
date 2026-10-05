@@ -87,14 +87,15 @@ export default function ProfilePage() {
   if (!email) {
     return (
       <div className="empty">
-        <div className="empty-title">Sign in to manage your tags</div>
+        <div className="empty-title">Cannot reach the local API</div>
         <p className="empty-text">
-          Custom tags, radars and notifications live in your account. Browsing
-          signals stays public.
+          Custom tags, radars and notifications live in your local database.
+          Start the collector with <code className="mono">docker compose up</code>{" "}
+          and reload.
         </p>
-        <Link className="btn btn-primary" href="/login">
-          Sign in
-        </Link>
+        <button className="btn btn-primary" onClick={() => location.reload()}>
+          Retry
+        </button>
       </div>
     );
   }

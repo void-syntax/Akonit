@@ -161,13 +161,15 @@ export default function SettingsPage() {
   if (!email) {
     return (
       <div className="empty">
-        <div className="empty-title">Sign in to change settings</div>
+        <div className="empty-title">Cannot reach the local API</div>
         <p className="empty-text">
-          Notification channels, quiet hours and defaults are stored per account.
+          Notification channels, quiet hours and defaults are stored in your
+          local database. Start the collector with{" "}
+          <code className="mono">docker compose up</code> and reload.
         </p>
-        <Link className="btn btn-primary" href="/login">
-          Sign in
-        </Link>
+        <button className="btn btn-primary" onClick={() => location.reload()}>
+          Retry
+        </button>
       </div>
     );
   }
