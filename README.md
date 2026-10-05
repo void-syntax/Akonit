@@ -10,6 +10,35 @@ news), and notifies you on your phone.
 
 ---
 
+## Run it locally
+
+```bash
+cp .env.example .env
+docker compose up
+```
+
+That starts Postgres, Redis, the API, the web app and the collector worker.
+Open **http://localhost:3000**. The worker collects every **60 seconds**.
+
+Nothing external is required: no Supabase, no Vercel, no accounts, no keys.
+Every optional token in `.env` just upgrades a collector when you have one.
+
+Run without Docker at all by setting `DATABASE_URL` to the SQLite line in
+`.env.example` and running `python -m app.workers.schedule` from `backend/`.
+
+### Why local is the primary target
+
+GitHub Actions cannot run a cron faster than every five minutes, and GitHub
+documents that scheduled runs may be delayed further under load. For a product
+whose entire value is noticing something *early*, that is a 5–35 minute blind
+spot on every cycle. The local worker is a long-lived process, so a one-minute
+interval is cheap and immediate.
+
+`.github/workflows/collect.yml` still exists for people who want a hosted
+collector, but it is no longer the recommended path.
+
+---
+
 ## Architecture
 
 ```
@@ -82,6 +111,31 @@ test (`test_popular_but_flat_scores_lower_than_sharp_rise`).
 
 Snapshots are append-only, so growth, acceleration, lifecycle and charts are
 all derived from real history.
+
+### Freshness is enforced at ingestion
+
+A signal only enters the feed if it was published within
+`detect_max_age_hours` (72 by default). This matters more than it sounds:
+search-driven collectors keep returning the same evergreen hits, and without a
+publication-date cutoff a five-year-old video enters the feed looking like a
+breaking trend.
+
+The feed's honesty depends on three rules that were bugs once:
+
+* **No baseline, no growth.** A first sighting has nothing to compare against,
+  so growth is `0`, not `100`. Treating "appeared" as "surged" filled the feed
+  with identical RISING items.
+* **Unknown age stays unknown.** Feeds that expose no count (TikTok tag pages,
+  X trends24, Reddit PullPush) cannot fake momentum, and undated YouTube Shorts
+  are dropped rather than assumed fresh.
+* **Publication date, not discovery date.** `first_seen_at` is the date the
+  thing was published, so age means what a reader thinks it means.
+
+YouTube's real trending feed (`/feed/trending`) renders an anonymous
+`feedNudgeRenderer` with zero videos, so it cannot be used. The adapter falls
+back to public search and now filters on the publication date it can actually
+parse — the old relative-time pattern required whitespace and YouTube writes
+`8mo ago` without any, so every video used to come back undated.
 
 ---
 
