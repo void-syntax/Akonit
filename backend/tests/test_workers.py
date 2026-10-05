@@ -37,6 +37,26 @@ class _FakeQuery:
         return []
 
 
+def test_collection_keywords_resolves_radar_conditions() -> None:
+    """Keywords must be collected from radars, and the lookup must be awaited.
+
+    `collection_keywords` iterates the result of an async helper. Leaving the
+    `await` off does not fail loudly: it returns a coroutine that is silently
+    treated as an empty iterable at best, and raises TypeError at worst. Either
+    way the engine quietly stops searching what the user asked for.
+    """
+    import inspect
+
+    from app.workers import tasks
+
+    assert inspect.iscoroutinefunction(tasks._radar_keyword_conditions)
+
+    source = inspect.getsource(tasks.collection_keywords)
+    assert "await _radar_keyword_conditions" in source, (
+        "collection_keywords must await the radar keyword lookup"
+    )
+
+
 class _FakeSession:
     """Records that the worker opened and released a session."""
 

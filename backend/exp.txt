@@ -1,0 +1,4 @@
+normalize_text('  K-Beauty!!!  ') -> 'k-beauty'
+similarity(different topics) -> 0.5469
+two points  -> growth -50.0 accel nan has_accel False
+three points-> growth -50.0 accel 0.0 has_accel True

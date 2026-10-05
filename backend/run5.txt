@@ -1,0 +1,591 @@
+﻿database: sqlite+aiosqlite:///./signal_radar.db
+
+==========================================================================
+STEP 0  reset + seed
+==========================================================================
+00:32:14 | INFO    | app.seed.runner              | countries seeded: +110
+00:32:14 | INFO    | app.seed.runner              | tags seeded: +89
+00:32:14 | INFO    | app.seed.runner              | sources synced: +15, ~0
+
+==========================================================================
+STEP 1  REAL FETCH from all sources
+==========================================================================
+00:32:51 | INFO    | collector.registry           | [tiktok] public_tag_pages fetched 25 events
+00:32:56 | INFO    | collector.registry           | [youtube] search_sorted fetched 25 events
+00:32:58 | INFO    | collector.registry           | [reddit] pullpush fetched 25 events
+00:32:59 | INFO    | collector.registry           | [x_trends] trends24_public fetched 25 events
+00:32:59 | INFO    | collector.registry           | [instagram] strategy graph_api unavailable: no Instagram Graph API token configured. Public hashtag pages load data through an authenticated internal call, so we do not read them. Beauty/fashion signals are still covered by TikTok, YouTube, X and Google Trends.
+00:33:05 | INFO    | collector.registry           | [google_news_trends] news_rss_when fetched 25 events
+00:33:09 | INFO    | collector.registry           | [google_trends] trending_rss fetched 25 events
+00:33:11 | INFO    | collector.registry           | [github] search_api fetched 25 events
+00:33:13 | INFO    | collector.registry           | [huggingface] hub_api fetched 25 events
+00:33:14 | INFO    | collector.registry           | [producthunt] rss_feed fetched 25 events
+00:33:28 | INFO    | collector.registry           | [hackernews] firebase_top fetched 25 events
+00:33:30 | INFO    | collector.registry           | [npm] registry_search fetched 25 events
+00:33:32 | INFO    | collector.registry           | [devto] articles_api fetched 25 events
+00:33:35 | INFO    | collector.registry           | [lobsters] rss_feed fetched 25 events
+00:33:37 | INFO    | collector.registry           | [stackoverflow] api_2_3 fetched 25 events
+00:33:38 | INFO    | app.services.pipeline_service | collection cycle: 350 fetched, 312 new signals, 14 sources ok
+python : Traceback (most recent 
+call last):
+At line:1 char:133
++ ... -ErrorAction 
+SilentlyContinue; python -m 
+tools.e2e_check 2>&1 | Out-F ...
++                                
+    
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : 
+NotS    pecified: (Traceback 
+(most rec    ent call 
+last)::String) [], Re    
+moteException
+    + FullyQualifiedErrorId : 
+Nati    veCommandError
+ 
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\sess
+ion.py", line 4448, in _flush
+    flush_context.execute()
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\unit
+ofwork.py", line 466, in execute
+    rec.execute(self)
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\unit
+ofwork.py", line 642, in execute
+    util.preloaded.orm_persistenc
+e.save_obj(
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\pers
+istence.py", line 93, in save_obj
+    _emit_insert_statements(
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\pers
+istence.py", line 1233, in 
+_emit_insert_statements
+    result = connection.execute(
+             ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 1418, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\sql\elem
+ents.py", line 515, in 
+_execute_on_connection
+    return connection._execute_cl
+auseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 1640, in 
+_execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 1846, in 
+_execute_context
+    return 
+self._exec_single_context(
+           
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 1986, in 
+_exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 2358, in 
+_handle_dbapi_exception
+    raise exc_info[1].with_traceb
+ack(exc_info[2])
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 1967, in 
+_exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\d
+efault.py", line 941, in 
+do_execute
+    cursor.execute(statement, 
+parameters)
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\dialects
+\sqlite\aiosqlite.py", line 147, 
+in execute
+    self._adapt_connection._handl
+e_exception(error)
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\dialects
+\sqlite\aiosqlite.py", line 298, 
+in _handle_exception
+    raise error
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\dialects
+\sqlite\aiosqlite.py", line 124, 
+in execute
+    _cursor = self.await_(self._c
+onnection.cursor())
+              ^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\util\_co
+ncurrency_py3k.py", line 123, in 
+await_only
+    raise exc.MissingGreenlet(
+sqlalchemy.exc.MissingGreenlet: 
+greenlet_spawn has not been 
+called; can't call await_only() 
+here. Was IO attempted in an 
+unexpected place? (Background on 
+this error at: 
+https://sqlalche.me/e/20/xd2s)
+
+During handling of the above 
+exception, another exception 
+occurred:
+
+Traceback (most recent call 
+last):
+  File "<frozen runpy>", line 
+198, in _run_module_as_main
+  File "<frozen runpy>", line 
+88, in _run_code
+  File "C:\Users\User\Desktop\Pro
+ject\backend\tools\e2e_check.py",
+ line 273, in <module>
+    raise 
+SystemExit(asyncio.run(main()))
+                     
+^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsA
+pps\PythonSoftwareFoundation.Pyth
+on.3.12_3.12.2800.0_x64__qbz5n2kf
+ra8p0\Lib\asyncio\runners.py", 
+line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsA
+pps\PythonSoftwareFoundation.Pyth
+on.3.12_3.12.2800.0_x64__qbz5n2kf
+ra8p0\Lib\asyncio\runners.py", 
+line 118, in run
+    return self._loop.run_until_c
+omplete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsA
+pps\PythonSoftwareFoundation.Pyth
+on.3.12_3.12.2800.0_x64__qbz5n2kf
+ra8p0\Lib\asyncio\base_events.py"
+, line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\Pro
+ject\backend\tools\e2e_check.py",
+ line 262, in main
+    await run_radar(session)
+  File "C:\Users\User\Desktop\Pro
+ject\backend\tools\e2e_check.py",
+ line 187, in run_radar
+    radar = await create_radar(
+            ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\Pro
+ject\backend\app\services\radar_s
+ervice.py", line 191, in 
+create_radar
+    await 
+_persist_conditions(session, 
+radar.id, root)
+  File "C:\Users\User\Desktop\Pro
+ject\backend\app\services\radar_s
+ervice.py", line 243, in 
+_persist_conditions
+    db_group.conditions = 
+conditions
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\attr
+ibutes.py", line 537, in __set__
+    self.impl.set(
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\attr
+ibutes.py", line 1966, in set
+    old = self.get(
+          ^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\attr
+ibutes.py", line 1086, in get
+    value = self._fire_loader_cal
+lables(state, key, passive)
+            ^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\attr
+ibutes.py", line 1121, in 
+_fire_loader_callables
+    return self.callable_(state, 
+passive)
+           
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\stra
+tegies.py", line 978, in 
+_load_for_state
+    return self._emit_lazyload(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\stra
+tegies.py", line 1141, in 
+_emit_lazyload
+    result = session.execute(
+             ^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\sess
+ion.py", line 2362, in execute
+    return 
+self._execute_internal(
+           
+^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\sess
+ion.py", line 2226, in 
+_execute_internal
+    ) = compile_state_cls.orm_pre
+_session_exec(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\cont
+ext.py", line 561, in 
+orm_pre_session_exec
+    session._autoflush()
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\sess
+ion.py", line 3050, in _autoflush
+    self.flush()
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\sess
+ion.py", line 4352, in flush
+    self._flush(objects)
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\sess
+ion.py", line 4487, in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\util\lan
+ghelpers.py", line 150, in 
+__exit__
+    raise 
+value.with_traceback(traceback)
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\sess
+ion.py", line 4488, in _flush
+    transaction.rollback(_capture
+_exception=True)
+  File "<string>", line 2, in 
+rollback
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\stat
+e_changes.py", line 139, in _go
+    ret_value = fn(self, *arg, 
+**kw)
+                
+^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\sess
+ion.py", line 1395, in rollback
+    raise rollback_err[1].with_tr
+aceback(rollback_err[2])
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\orm\sess
+ion.py", line 1360, in rollback
+    t[1].rollback()
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 2610, in rollback
+    self._do_rollback()
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 2729, in 
+_do_rollback
+    self._close_impl(try_deactiva
+te=True)
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 2712, in 
+_close_impl
+    
+self._connection_rollback_impl()
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 2704, in 
+_connection_rollback_impl
+    
+self.connection._rollback_impl()
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 1129, in 
+_rollback_impl
+    
+self._handle_dbapi_exception(e, 
+None, None, None, None)
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 2358, in 
+_handle_dbapi_exception
+    raise exc_info[1].with_traceb
+ack(exc_info[2])
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\b
+ase.py", line 1127, in 
+_rollback_impl
+    self.engine.dialect.do_rollba
+ck(self.connection)
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\engine\d
+efault.py", line 699, in 
+do_rollback
+    dbapi_connection.rollback()
+fetched events  : 350
+sources ok      : 14
+sources failed  : 1
+signals created : 312
+signals updated : 38
+  note: instagram: graph_api: no Instagram Graph API token configured. Public hashtag pages load data through an authenticated i
+
+==========================================================================
+STEP 2  SOURCE HEALTH (honest status)
+==========================================================================
+[ACTIVE ] tiktok              records=25    strategy=public_tag_pages
+[ACTIVE ] youtube             records=25    strategy=search_sorted
+[ACTIVE ] reddit              records=25    strategy=pullpush
+[ACTIVE ] x_trends            records=25    strategy=trends24_public
+[CREDS   ] instagram           records=0     strategy=none
+                     reason: Needs META_APP_ID + an Instagram Graph API access token (instagram_basic). Public hashtag pages 
+[ACTIVE ] google_news_trends  records=25    strategy=news_rss_when
+[ACTIVE ] google_trends       records=25    strategy=trending_rss
+[ACTIVE ] github              records=25    strategy=search_api
+[ACTIVE ] huggingface         records=25    strategy=hub_api
+[ACTIVE ] producthunt         records=25    strategy=rss_feed
+[ACTIVE ] hackernews          records=25    strategy=firebase_top
+[ACTIVE ] npm                 records=25    strategy=registry_search
+[ACTIVE ] devto               records=25    strategy=articles_api
+[ACTIVE ] lobsters            records=25    strategy=rss_feed
+[ACTIVE ] stackoverflow       records=25    strategy=api_2_3
+
+==========================================================================
+STEP 3  SIGNALS produced by detection
+==========================================================================
+[RISING  ] str=58.58  US     google_news_trends Dimensional Nail Sets: Kleo Kolor Splits I
+            activity=8 growth=200%  tags=nails
+[RISING  ] str=57.62  US     youtube            4K Immersive Interactive Warm-up | ≡ƒñáTOY ST
+            activity=17,088,618 growth=100%  tags=challenges
+[RISING  ] str=57.62  US     youtube            Immersive Interactive Warm-up | ≡ƒÜªPOV SQUID
+            activity=13,720,340 growth=100%  tags=challenges
+[RISING  ] str=57.62  US     youtube            Mini Car Viral Challenge Video ≡ƒÜò #shorts #
+            activity=43,338,180 growth=100%  tags=challenges
+[RISING  ] str=57.07  US     youtube            Trending Now |Odia Music Video|Raja D |Sai
+            activity=4,815,127 growth=100%  tags=
+[RISING  ] str=56.94  US     youtube            Say The Word On Beat Challenge 43 | EASY M
+            activity=4,054,518 growth=100%  tags=challenges
+[RISING  ] str=56.73  US     google_news_trends adidas Made a Dressy Ripple-Soled Sneaker 
+            activity=12 growth=167%  tags=
+[RISING  ] str=55.83  US     youtube            The Only AI Tools You Need (12-Minute Guid
+            activity=905,884 growth=100%  tags=ai
+[RISING  ] str=55.83  US     youtube            7 new open source AI tools you need right 
+            activity=913,182 growth=100%  tags=open-source-ai,open-source,ai
+[RISING  ] str=54.67  US     youtube            I Tested OpenAI's New Personal Assistant A
+            activity=192,304 growth=100%  tags=
+[RISING  ] str=54.59  US     youtube            This NEW AI Model is Breaking The Internet
+            activity=172,201 growth=100%  tags=ai
+[RISING  ] str=54.55  US     youtube            Maafi | Full Version | Trending Now | Rahu
+            activity=162,430 growth=100%  tags=
+
+total signals stored: 312 (top 12 shown)
+
+==========================================================================
+STEP 4  SNAPSHOT HISTORY (append-only)
+==========================================================================
+snapshots stored: 662
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\dialects
+\sqlite\aiosqlite.py", line 265, 
+in rollback
+    self._handle_exception(error)
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\dialects
+\sqlite\aiosqlite.py", line 298, 
+in _handle_exception
+    raise error
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\dialects
+\sqlite\aiosqlite.py", line 263, 
+in rollback
+    self.await_(self._connection.
+rollback())
+  File "C:\Users\User\AppData\Loc
+al\Packages\PythonSoftwareFoundat
+ion.Python.3.12_qbz5n2kfra8p0\Loc
+alCache\local-packages\Python312\
+site-packages\sqlalchemy\util\_co
+ncurrency_py3k.py", line 123, in 
+await_only
+    raise exc.MissingGreenlet(
+sqlalchemy.exc.MissingGreenlet: 
+greenlet_spawn has not been 
+called; can't call await_only() 
+here. Was IO attempted in an 
+unexpected place? (Background on 
+this error at: 
+https://sqlalche.me/e/20/xd2s)
+   20:01:20 activity=1 growth=0% strength=0.0
+   20:33:05 activity=1 growth=100% strength=45.68
+   20:33:05 activity=3 growth=0% strength=19.65
+   20:33:05 activity=8 growth=200% strength=58.58
+
+==========================================================================
+STEP 5  RADAR creation with AND / OR / EXCLUDE
+==========================================================================

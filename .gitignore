@@ -23,29 +23,17 @@ node_modules/
 .next/
 out/
 npm-debug.log*
+*.tsbuildinfo
 
-# Logs & verification artefacts
+# Local data and build artefacts.
+# These used to be listed one by one, which is why stray dumps kept landing in
+# the repo. The rules below cover the whole class instead.
 *.log
 *.err
-backend/run*.txt
-backend/e2e*.txt
-backend/*_report.txt
-backend/short.txt
-backend/exp.txt
-backend/tail.txt
-backend/syntax_report.txt
-backend/testout.txt
-frontend/tsout.txt
-frontend/tsclean.txt
-frontend/build*.txt
-frontend/web_srv.*
+*.out
+backend/reports/
 frontend/scripts/
 
 # OS
 .DS_Store
 Thumbs.db
-dev.log
-api.log
-*.tsbuildinfo
-*_summary.json
-*.txt

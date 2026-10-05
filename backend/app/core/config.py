@@ -20,38 +20,23 @@ class Settings(BaseSettings):
     # --- app ---
     app_env: str = "development"
     api_debug: bool = True
-    secret_key: str = "change-me-to-a-long-random-string"
     frontend_url: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000,http://localhost:8000"
-    api_public_url: str = "http://localhost:8000"
-
-    # --- Google OAuth ---
-    google_client_id: str = ""
-    google_client_secret: str = ""
-    google_redirect_uri: str = ""
 
     # --- infra ---
-    # Postgres is the default so a fresh checkout with docker compose up works
+    # Postgres is the default so a fresh checkout with `docker compose up` works
     # without editing anything. SQLite remains available for a zero-dependency
     # trial run, but it is not what the local stack uses.
     database_url: str = "postgresql+asyncpg://signal:signal@localhost:5432/signal_radar"
-    database_url_fallback: str | None = None
-    db_probe_timeout_seconds: float = 5.0
-    """Used only when DATABASE_URL cannot be reached, e.g. a machine whose DNS
-    cannot resolve the database host. Must be set explicitly; nothing falls
-    back automatically in production."""
     redis_url: str | None = None
     db_echo: bool = False
 
     # --- auth ---
-    # Local-first: the app runs on the operator's own machine and there is
-    # nobody to log in as, so token auth is off by default and a single local
-    # account is used for radars, saved signals and notifications. Flip this to
-    # false to restore JWT/OAuth auth for a hosted deployment.
+    # There is no login: the app runs on the operator's own machine, so the API
+    # resolves one local account and every request uses it. `auth_disabled=false`
+    # turns token auth back on for anyone who puts this behind a shared host.
     auth_disabled: bool = True
     local_user_email: str = "local@signalradar"
-    access_token_ttl_minutes: int = 30
-    refresh_token_ttl_days: int = 30
 
     # --- sources / collectors ---
     github_token: str | None = None
@@ -65,10 +50,9 @@ class Settings(BaseSettings):
     meta_app_id: str | None = None
     meta_app_secret: str | None = None
 
-    # Local-first defaults. GitHub Actions cannot run a cron faster than every
-    # five minutes and may delay it further under load, which is fatal for a
-    # feed whose whole point is catching things early. Running locally, the
-    # worker is a long-lived process and a minute is cheap.
+    # A minute is the point of the product: the whole promise is catching things
+    # while they are still early, so the worker runs as often as it reasonably
+    # can on the machine it is running on.
     collect_interval_seconds: int = 60
     snapshot_interval_seconds: int = 60
     fetch_timeout_seconds: int = 30

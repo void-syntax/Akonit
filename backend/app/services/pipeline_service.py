@@ -76,10 +76,17 @@ async def run_collection_cycle(
     session: AsyncSession,
     *,
     countries: list[str] | None = None,
+    keywords: list[str] | None = None,
     limit_per_source: int = 40,
     source_ids: list[str] | None = None,
 ) -> PipelineStats:
-    """One full pass over all enabled sources."""
+    """One full pass over all enabled sources.
+
+    `keywords` is what makes collection tag-driven: the terms the user declared
+    in their custom tags and radar conditions become the queries collectors run.
+    Without it every adapter falls back to its own hardcoded seeds, which is why
+    a radar for "Korea + Makeup" used to return generic content.
+    """
     stats = PipelineStats()
 
     client = HttpClient()
@@ -88,7 +95,9 @@ async def run_collection_cycle(
             if source_ids and adapter.source_id not in source_ids:
                 continue
             ctx = FetchContext(
-                countries=countries or [], limit=limit_per_source
+                countries=countries or [],
+                keywords=keywords or [],
+                limit=limit_per_source,
             )
             try:
                 result = await run_strategy_cascade(adapter, ctx, client)

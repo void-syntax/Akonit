@@ -13,50 +13,86 @@ news), and notifies you on your phone.
 ## Run it locally
 
 ```bash
-cp .env.example .env
+git clone <this repo>
+cd Project
+cp .env.example .env      # optional: every value already has a working default
 docker compose up
 ```
 
-That starts Postgres, Redis, the API, the web app and the collector worker.
-Open **http://localhost:3000**. The worker collects every **60 seconds**.
+Open **http://localhost:3000**. The collector runs every **60 seconds** and
+populates the feed on boot, so the first signals appear within a minute.
 
-Nothing external is required: no Supabase, no Vercel, no accounts, no keys.
-Every optional token in `.env` just upgrades a collector when you have one.
+Nothing external is required: no Supabase, no Vercel, no account, no API key,
+no signup. Every token in `.env` is optional and only raises a rate limit when
+you happen to have one.
 
-Run without Docker at all by setting `DATABASE_URL` to the SQLite line in
-`.env.example` and running `python -m app.workers.schedule` from `backend/`.
+**Requirements:** Docker Desktop. That is the whole list.
+
+### Verify the engine actually collects
+
+Run one cycle against a throwaway database, with no Docker and no Postgres:
+
+```bash
+cd backend
+python -m tools.collect_once
+```
+
+A healthy run ends with `OK: N signals in the feed`. Run it twice with `--keep`
+and the second run reports `signals_with_measured_growth` above zero, which is
+how you know the trend detection works and not just the fetching:
+
+```bash
+python -m tools.collect_once --keep   # first cycle: creates signals
+python -m tools.collect_once --keep   # second cycle: measures growth
+```
+
+On the first cycle growth is legitimately zero everywhere: there is no previous
+measurement to compare against. That is deliberate — the engine reports nothing
+rather than inventing a 100% increase.
+
+### Other checks
+
+```bash
+cd backend
+python -m pytest                  # unit tests
+python -m tools.audit_endpoints   # every endpoint the UI depends on
+python -m tools.check_env         # env vars vs Settings, migrations vs models
+python -m tools.list_routes       # every route, flags duplicate handlers
+```
+
+### Running without Docker
+
+Set `DATABASE_URL` to the SQLite line in `.env.example`, then:
+
+```bash
+cd backend
+pip install -r requirements.txt
+python -m app.workers.schedule
+```
 
 ### There is no login
 
-`auth_disabled` defaults to `true`, so the API resolves a single local account
-and every request uses it. Radars, saved signals and notifications work
-immediately, with no token, cookie or OAuth anywhere in the flow. Set
-`auth_disabled=false` and `local_user_email` to bring real auth back for a
-hosted deployment.
+`AUTH_DISABLED` defaults to `true`, so the API creates one local account on the
+first request and uses it for everything. Radars, saved signals and
+notifications work immediately, with no token, cookie or OAuth anywhere in the
+flow. Set `AUTH_DISABLED=false` only if you put this behind a shared host.
 
 ### The engine searches what you asked for
 
 Collection is tag-driven rather than fixed. The keywords inside your custom tags
-and radar `KEYWORD` conditions become the queries the collectors actually run,
-and the countries come from your radars (falling back to your defaults, then to a
-built-in list). A radar for "Korea + Makeup" makes the collectors fetch Korean
-makeup content instead of whatever seed happened to be hardcoded.
-
-### Checking it works
-
-```bash
-cd backend
-python -m tools.audit_endpoints   # 38/38 endpoints the UI depends on
-python -m pytest                  # unit tests
-```
+and your radar's `KEYWORD` conditions become the queries the collectors actually
+run, and the countries come from your radars (falling back to your profile
+defaults, then to a built-in list). A radar for "Korea + Makeup" makes the
+collectors fetch Korean makeup content instead of whatever seed happened to be
+hardcoded in the adapter.
 
 ### Why local is the primary target
 
-GitHub Actions cannot run a cron faster than every five minutes, and GitHub
-documents that scheduled runs may be delayed further under load. For a product
-whose entire value is noticing something *early*, that is a 5–35 minute blind
-spot on every cycle. The local worker is a long-lived process, so a one-minute
-interval is cheap and immediate.
+The product's whole value is noticing something *early*, so the collection
+interval is 60 seconds. That needs a long-lived process on a machine you control.
+A hosted cron cannot keep that cadence reliably, and this build has no hosted
+deploy path at all: no Supabase, no Vercel, no GitHub Actions workflow. It is a
+tool you run, not a service you sign up for.
 
 `.github/workflows/collect.yml` still exists for people who want a hosted
 collector, but it is no longer the recommended path.

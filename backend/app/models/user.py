@@ -39,39 +39,6 @@ class User(Base):
     )
 
 
-class OAuthAccount(Base):
-    """A third-party identity linked to a user (Google sign-in).
-
-    Kept separate from User so the password column stays optional: an account
-    created through Google never has a usable password hash.
-    """
-
-    __tablename__ = "oauth_accounts"
-
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=uuid_str
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
-    provider: Mapped[str] = mapped_column(String(40))
-    provider_user_id: Mapped[str] = mapped_column(String(255))
-    email: Mapped[str | None] = mapped_column(String(255))
-    name: Mapped[str | None] = mapped_column(String(160))
-    avatar_url: Mapped[str | None] = mapped_column(Text)
-    raw: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow
-    )
-    last_login_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-
-    __table_args__ = (
-        UniqueConstraint("provider", "provider_user_id"),
-    )
-
-
 class UserProfile(Base):
     __tablename__ = "user_profiles"
 
