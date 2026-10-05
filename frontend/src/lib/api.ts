@@ -145,9 +145,10 @@ export const api = {
 
   discover: (query: {
     limit?: number;
-    country?: string;
-    source?: string;
-    tag?: string;
+    country?: string[];
+    source?: string[];
+    tag?: string[];
+    min_strength?: number;
   } = {}) =>
     request<{ items: Signal[]; total: number }>(
       `/discover${qs(query as Record<string, unknown>)}`,

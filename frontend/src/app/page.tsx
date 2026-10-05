@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { FilterSelect } from "@/components/FilterSelect";
+import { IntroHero } from "@/components/IntroHero";
 import { SignalCard, SignalCardSkeleton } from "@/components/SignalCard";
 import { api, type FeedQuery } from "@/lib/api";
 import { countryName, sourceName } from "@/lib/format";
@@ -25,25 +27,6 @@ const TABS = [
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
-
-const STEPS = [
-  {
-    title: "You define conditions",
-    text: "Pick countries, sources, tags and thresholds. No code, no SQL.",
-  },
-  {
-    title: "The system watches 24/7",
-    text: "15 free sources collected continuously, with full history kept.",
-  },
-  {
-    title: "Signals appear early",
-    text: "You get the ones that just started to grow, not what everyone saw.",
-  },
-  {
-    title: "You get notified",
-    text: "Browser push or Telegram, the moment your radar matches.",
-  },
-];
 
 export default function FeedPage() {
   const { email } = useAuth();
@@ -181,68 +164,7 @@ export default function FeedPage() {
 
   return (
     <>
-      {stats && !email && (
-        <section className="hero">
-          <div className="hero-kicker">
-            <span className="live-dot" style={{ background: "var(--brand)" }} />
-            Condition-driven monitoring
-          </div>
-
-          <h1 className="hero-title">
-            Catch what&apos;s starting to trend{" "}
-            <em>before it becomes obvious.</em>
-          </h1>
-
-          <p className="hero-sub">
-            Signal Radar watches TikTok, YouTube, X, Reddit, Google Trends and
-            more &mdash; and surfaces only what just started growing fast. You
-            set the conditions once; it runs 24/7.
-          </p>
-
-          <div className="hero-actions">
-            <a className="btn btn-lg btn-primary" href="#feed">
-              Explore signals
-            </a>
-            <Link className="btn btn-lg btn-outline" href="/radars/new">
-              Create your radar
-            </Link>
-          </div>
-
-          <div className="hero-stats">
-            <div>
-              <div className="hero-stat-value">{stats.total_signals}</div>
-              <div className="hero-stat-label">Signals tracked</div>
-            </div>
-            <div>
-              <div className="hero-stat-value">{stats.breakout}</div>
-              <div className="hero-stat-label">Breakouts</div>
-            </div>
-            <div>
-              <div className="hero-stat-value">{stats.sources}</div>
-              <div className="hero-stat-label">Sources live</div>
-            </div>
-            <div>
-              <div className="hero-stat-value">{stats.countries}</div>
-              <div className="hero-stat-label">Countries</div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {stats && !email && (
-        <section style={{ marginBottom: "var(--s6)" }}>
-          <div className="section-title">How it works</div>
-          <div className="steps">
-            {STEPS.map((step, index) => (
-              <div className="step" key={step.title}>
-                <div className="step-index">{index + 1}</div>
-                <div className="step-title">{step.title}</div>
-                <div className="step-text">{step.text}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      <IntroHero stats={stats} firstRun={radars.length === 0} />
 
       <div id="feed">
         <div className="section-title">
@@ -423,89 +345,4 @@ export default function FeedPage() {
   );
 }
 
-/**
- * One filter dropdown.
- *
- * Accepts either a single value (radar) or a list (country / source / tag), so
- * the same control serves both "pick one radar" and "pick Korea and Japan",
- * which is what the filter bar needs.
- */
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-  allLabel,
-}: {
-  label: string;
-  value: string | string[] | null;
-  onChange: (next: never) => void;
-  options: { value: string; label: string }[];
-  allLabel: string;
-}) {
-  const selected = Array.isArray(value) ? value : value ? [value] : [];
 
-  function toggle(option: string) {
-    if (Array.isArray(value)) {
-      const next = selected.includes(option)
-        ? selected.filter((v) => v !== option)
-        : [...selected, option];
-      (onChange as (v: string[]) => void)(next);
-    } else {
-      // Single-select: picking the active option clears it, which is the
-      // fastest way to undo a filter.
-      (onChange as (v: string | null) => void)(
-        value === option ? null : option,
-      );
-    }
-  }
-
-  return (
-    <div className="filter-group">
-      <button
-        type="button"
-        className="filter"
-        data-active={selected.length > 0}
-        onClick={() => toggle(selected[0] ?? options[0]?.value ?? "")}
-        aria-pressed={selected.length > 0}
-      >
-        <span className="filter-label">{label}</span>
-        {selected.length === 0
-          ? allLabel
-          : selected.length === 1
-            ? (options.find((o) => o.value === selected[0])?.label ?? selected[0])
-            : `${selected.length} selected`}
-      </button>
-
-      {options.length > 0 && (
-        <div className="filter-menu" role="group" aria-label={label}>
-          <button
-            type="button"
-            className="filter-menu-item filter-menu-clear"
-            onClick={() =>
-              Array.isArray(value)
-                ? (onChange as (v: string[]) => void)([])
-                : (onChange as (v: string | null) => void)(null)
-            }
-          >
-            {allLabel}
-          </button>
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className="filter-menu-item"
-              data-active={selected.includes(option.value)}
-              onClick={() => toggle(option.value)}
-            >
-              <span className="filter-menu-check" aria-hidden="true">
-                {selected.includes(option.value) ? "✓" : ""}
-              </span>
-              {option.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}

@@ -210,6 +210,68 @@ class TestTagFiltering:
             asyncio.run(engine.dispose())
 
 
+def test_api_lifespan_starts() -> None:
+    """The ASGI lifespan must run without raising.
+
+    Startup is where the schema is brought up to date, so a mistake there (a
+    removed helper, a renamed import) stops the whole app from booting. The
+    failure only shows up when something actually serves a request, which no
+    unit test was covering.
+    """
+    import os
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    db = Path(tempfile.gettempdir()) / "lifespan_test.db"
+    if db.exists():
+        db.unlink()
+
+    # Newlines are allowed with -c; keeping this a real `async with` matters
+    # because the context manager holds resources bound to one event loop.
+    script = f"""
+import asyncio, sys
+sys.path.insert(0, r"{backend}")
+from app.main import app
+
+async def boot():
+    async with app.router.lifespan_context(app):
+        pass
+
+asyncio.run(boot())
+print("BOOTED")
+"""
+
+    env = {**os.environ, "DATABASE_URL": f"sqlite+aiosqlite:///{db.as_posix()}"}
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
+
+    # A second boot without ever touching the schema: the same check run twice
+    # proves startup is idempotent and leaves a usable database behind, which is
+    # what happens on every restart.
+    second = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
+    assert "BOOTED" in second.stdout, (
+        f"restart failed.\nstdout: {second.stdout}\nstderr: {second.stderr}"
+    )
+
+    assert "BOOTED" in result.stdout, (
+        f"the API failed to start.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
 class TestScoring:
     def test_popular_but_flat_scores_lower_than_sharp_rise(self):
         """The core product rule: POPULAR != RISING."""

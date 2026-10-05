@@ -28,16 +28,11 @@ early signals appear, and you get notified.
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.db import session as db_session
 
-    # Resolve the real database before anything touches it.
-    db_session.engine = await db_session.create_engine()
-    db_session.SessionLocal.configure(bind=db_session.engine)
-
-    # Check the engine that is actually in use, not the configured URL: the
-    # fallback may have swapped a Postgres URL for a local SQLite file.
-    active_url = db_session.engine.url.render_as_string(hide_password=False)
-    on_sqlite = str(db_session.engine.url).startswith("sqlite")
+    on_sqlite = settings.is_sqlite
 
     if on_sqlite:
+        # SQLite has no server to migrate against, so the tables come straight
+        # from the models and any leftover file is brought up to date after.
         await db_session.init_models()
 
         from app.db.migrate import apply_migrations
@@ -53,21 +48,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from alembic.config import Config as AlembicConfig
         from sqlalchemy import text
 
-        # The Supabase schema predates Alembic, so the tables can already exist
-        # while alembic_version is empty; a bare upgrade would then fail on
-        # CREATE TABLE. Stamp the baseline first when that is the case.
+        # A database can already hold every table while alembic_version is
+        # empty, in which case a bare `upgrade head` would fail on CREATE TABLE.
+        # Stamp the baseline first when that is the case.
         async with db_session.engine.connect() as conn:
             versioned = await conn.execute(
                 text("SELECT to_regclass('public.alembic_version')")
             )
-            signals = await conn.execute(text("SELECT to_regclass('public.signals')"))
-            needs_stamp = versioned.scalar() is None and signals.scalar() is not None
+            existing = await conn.execute(text("SELECT to_regclass('public.signals')"))
+            needs_stamp = versioned.scalar() is None and existing.scalar() is not None
 
         def _migrate() -> None:
             cfg = AlembicConfig(
                 str(Path(__file__).resolve().parent.parent / "alembic.ini")
             )
-            cfg.set_main_option("sqlalchemy.url", active_url)
+            cfg.set_main_option("sqlalchemy.url", settings.database_url)
             if needs_stamp:
                 command.stamp(cfg, "head")
             command.upgrade(cfg, "head")
