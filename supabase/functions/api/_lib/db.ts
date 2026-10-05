@@ -1,9 +1,16 @@
 /**
  * Postgres access for the edge function.
  *
- * Uses the Supabase pooler in transaction mode (port 6543). A direct
- * connection would open a new TCP connection per cold start and exhaust the
- * project connection limit (60 on the free plan).
+ * Connection string resolution, in order:
+ *   1. SUPABASE_DB_URL - injected automatically into every hosted edge function.
+ *      Preferred: the platform keeps it correct even when the pooler host, the
+ *      username format or the region changes.
+ *   2. A pooler URL built from DB_PASSWORD. Needed only for `supabase functions
+ *      serve` locally, where the automatic variable is absent.
+ *
+ * The pooler runs in transaction mode (port 6543) because the free plan allows
+ * only 60 Postgres connections. A direct connection would open a new TCP
+ * connection per cold start and exhaust that limit.
  */
 
 import postgres from "npm:postgres@3.4.5";
@@ -14,27 +21,82 @@ const password = Deno.env.get("DB_PASSWORD") ?? "";
 
 let client: ReturnType<typeof postgres> | null = null;
 
-function connectionString(): string {
+/**
+ * Candidate connection strings, best first.
+ *
+ * The direct endpoint (SUPABASE_DB_URL) is IPv6-only, which not every runtime
+ * can reach, so the pooler stays a working fallback rather than a comment.
+ */
+function candidates(): string[] {
+  const list: string[] = [];
+  const direct = Deno.env.get("SUPABASE_DB_URL");
+  if (direct) list.push(direct);
   if (password) {
-    return `postgres://postgres.${projectRef}:${encodeURIComponent(
-      password,
-    )}@aws-0-${region}.pooler.supabase.com:6543/postgres?pgbouncer=true&connect_timeout=10`;
+    list.push(
+      `postgres://postgres.${projectRef}:${encodeURIComponent(
+        password,
+      )}@aws-0-${region}.pooler.supabase.com:6543/postgres?pgbouncer=true&connect_timeout=10`,
+    );
   }
-  throw new Error("DB_PASSWORD is not set on the edge function");
+  if (list.length === 0) {
+    throw new Error(
+      "No database URL: set SUPABASE_DB_URL (automatic when hosted) or DB_PASSWORD",
+    );
+  }
+  return list;
 }
 
-/** Lazily create the shared client; Deno reuses it across warm invocations. */
+function options() {
+  return {
+    max: 1,
+    idle_timeout: 20,
+    connect_timeout: 10,
+    prepare: false, // required by pgbouncer transaction mode
+    onnotice: () => {},
+  };
+}
+
+let connecting: Promise<ReturnType<typeof postgres>> | null = null;
+
+/**
+ * Lazily create the shared client, trying each candidate once.
+ *
+ * The result is memoised so a warm isolate reuses one connection instead of
+ * reconnecting on every request.
+ */
 export function db() {
-  if (!client) {
-    client = postgres(connectionString(), {
-      max: 1,
-      idle_timeout: 20,
-      connect_timeout: 10,
-      prepare: false, // required by pgbouncer transaction mode
-      onnotice: () => {},
-    });
-  }
-  return client;
+  if (client) return client;
+  if (connecting) return connecting;
+
+  connecting = (async () => {
+    const urls = candidates();
+    let lastError: unknown;
+
+    for (const url of urls) {
+      const attempt = postgres(url, options());
+      try {
+        await attempt`SELECT 1`;
+        client = attempt;
+        connecting = null;
+        return attempt;
+      } catch (error) {
+        lastError = error;
+        await attempt.end({ timeout: 1 }).catch(() => {});
+        console.error(
+          "db connection failed, trying next candidate",
+          url.split("@")[1] ?? url,
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+
+    connecting = null;
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("no database connection could be established");
+  })();
+
+  return connecting;
 }
 
 /** Run rows as plain objects rather than postgres.js tuples. */
@@ -42,7 +104,7 @@ export async function rows<T = Record<string, unknown>>(
   sql: TemplateStringsArray | string,
   params: unknown[] = [],
 ): Promise<T[]> {
-  const client = db();
+  const client = await db();
   const query =
     typeof sql === "string" ? client.unsafe(sql, params as never[]) : client(sql, params as never[]);
   return (await query) as T[];
@@ -62,7 +124,7 @@ export async function exec(
   sql: TemplateStringsArray | string,
   params: unknown[] = [],
 ): Promise<void> {
-  const client = db();
+  const client = await db();
   if (typeof sql === "string") {
     await client.unsafe(sql, params as never[]);
   } else {

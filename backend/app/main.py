@@ -46,14 +46,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if added:
             logger.info("schema migrated: %s", ", ".join(added))
     else:
+        import asyncio
         from pathlib import Path
 
         from alembic import command
         from alembic.config import Config as AlembicConfig
+        from sqlalchemy import text
 
-        cfg = AlembicConfig(str(Path(__file__).resolve().parent.parent / "alembic.ini"))
-        cfg.set_main_option("sqlalchemy.url", active_url)
-        command.upgrade(cfg, "head")
+        # The Supabase schema predates Alembic, so the tables can already exist
+        # while alembic_version is empty; a bare upgrade would then fail on
+        # CREATE TABLE. Stamp the baseline first when that is the case.
+        async with db_session.engine.connect() as conn:
+            versioned = await conn.execute(
+                text("SELECT to_regclass('public.alembic_version')")
+            )
+            signals = await conn.execute(text("SELECT to_regclass('public.signals')"))
+            needs_stamp = versioned.scalar() is None and signals.scalar() is not None
+
+        def _migrate() -> None:
+            cfg = AlembicConfig(
+                str(Path(__file__).resolve().parent.parent / "alembic.ini")
+            )
+            cfg.set_main_option("sqlalchemy.url", active_url)
+            if needs_stamp:
+                command.stamp(cfg, "head")
+            command.upgrade(cfg, "head")
+
+        # alembic/env.py calls asyncio.run() itself, so it needs a thread that
+        # has no running event loop.
+        await asyncio.to_thread(_migrate)
         logger.info("schema ready (alembic head)")
 
     from app.db.session import SessionLocal

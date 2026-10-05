@@ -204,6 +204,39 @@ Row Level Security should stay **enabled** on every table: the application
 connects over PostgreSQL directly, while the anon/authenticated PostgREST roles
 must not be able to read the data.
 
+The schema predates Alembic, so `alembic_version` may be missing while the
+tables already exist. Both `collect.yml` and `tools/_bootstrap.py` detect that and
+stamp the baseline before upgrading; a bare `alembic upgrade head` against such a
+database would fail on `CREATE TABLE`.
+
+---
+
+## Deployment topology
+
+| Piece | Where it runs |
+|-------|---------------|
+| Collection, detection, matching, retention | Python in GitHub Actions (`collect.yml`) |
+| Read API | Supabase Edge Function `api` (Deno) |
+| Web UI | Vercel (Next.js, `frontend/` as root directory) |
+
+The edge function answers from `SUPABASE_DB_URL`, which the platform injects
+automatically; `DB_PASSWORD` is only a fallback for local `functions serve`.
+
+### Vercel
+
+One environment variable is required, and it is inlined at build time — without
+it the UI silently falls back to `http://localhost:8000`:
+
+```
+NEXT_PUBLIC_API_URL = https://<project-ref>.supabase.co/functions/v1/api
+```
+
+The client appends `/api/v1` itself, and the edge router strips stacked gateway
+prefixes, so no other path configuration is needed. The API is cross-origin in
+production, which is why the client never sends `credentials: "include"`: a
+credentialed request to a wildcard `Access-Control-Allow-Origin` is rejected by
+the browser.
+
 ---
 
 ## Radars

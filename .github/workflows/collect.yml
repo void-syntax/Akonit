@@ -48,12 +48,9 @@ jobs:
             echo "::warning::SECRET_KEY secret not set, using a per-run value"
           fi
 
-      - name: Apply migrations
-        run: alembic upgrade head
-        working-directory: backend
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-
+      # No separate `alembic upgrade head` step: the tools call _bootstrap.prepare(),
+      # which stamps the baseline when the Supabase schema already exists and then
+      # upgrades. A bare upgrade would fail on CREATE TABLE for existing tables.
       - name: Seed reference data
         run: python -m tools.seed_reference
         working-directory: backend
