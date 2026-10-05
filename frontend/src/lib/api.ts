@@ -57,10 +57,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
+  // No `credentials: "include"`. The API is cross-origin in production
+  // (vercel.app -> supabase.co) and answers with `Access-Control-Allow-Origin: *`;
+  // the browser rejects a credentialed response to a wildcard origin, so every
+  // request would fail CORS. Auth is a bearer token from localStorage, so no
+  // cookie is ever needed.
   const response = await fetch(`${BASE}${path}`, {
     ...options,
     headers,
-    credentials: "include",
     cache: "no-store",
   });
 

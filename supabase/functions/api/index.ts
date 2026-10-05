@@ -34,7 +34,14 @@ const SIGNAL_COLUMNS = `
   density_count
 `;
 
-const ACTIVE = "NEW, RISING, BREAKOUT";
+/** The statuses that count as a live signal, quoted for hand-built SQL. */
+const ACTIVE_SQL = `'NEW', 'RISING', 'BREAKOUT'`;
+
+/** Postgres numeric columns can arrive as strings; normalise them. */
+function num(value: unknown, fallback = 0): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 /**
  * Prefix segments that may sit in front of the real route.
@@ -169,7 +176,7 @@ async function signals(
   if (tab === "rising") where.push(`status IN ('RISING','BREAKOUT')`);
   else if (tab === "breakout") where.push(`status = 'BREAKOUT'`);
   else if (tab === "new") where.push(`status = 'NEW'`);
-  else if (tab === "discover") where.push(`status IN (${ACTIVE})`);
+  else if (tab === "discover") where.push(`status IN (${ACTIVE_SQL})`);
 
   if (countries.length) {
     args.push(countries.map((c) => c.toUpperCase()));
@@ -247,14 +254,26 @@ async function signalDetail(id: string): Promise<Response> {
 async function history(id: string, p: Record<string, string>): Promise<Response> {
   const hours = Math.min(intParam(p, "hours", 168), 720);
   const items = await rows(
-    `SELECT captured_at, activity, previous_activity, growth, acceleration,
-            strength, status, rank
+    `SELECT captured_at, activity, growth, acceleration, strength, status
      FROM signal_snapshots
      WHERE signal_id = $1 AND captured_at > now() - ($2 || ' hours')::interval
      ORDER BY captured_at ASC`,
     [id, String(hours)],
   );
-  return json({ items: items.map(serializeSnapshot), hours });
+
+  // Contract must match the Python route exactly: `{signal_id, points}` where
+  // each point uses `t` for the timestamp.
+  return json({
+    signal_id: id,
+    points: items.map((row) => ({
+      t: String(row.captured_at),
+      activity: num(row.activity),
+      growth: num(row.growth),
+      acceleration: num(row.acceleration),
+      strength: num(row.strength),
+      status: String(row.status ?? "NEW"),
+    })),
+  });
 }
 
 
@@ -290,7 +309,7 @@ async function related(id: string, limit: number): Promise<Response> {
 /** Discovery: strongest live signals, independent of any radar. */
 async function discover(p: Record<string, string>): Promise<Response> {
   const limit = Math.min(intParam(p, "limit", 40), 100);
-  const where = [`status IN (${ACTIVE})`];
+  const where = [`status IN (${ACTIVE_SQL})`];
   const args: unknown[] = [];
 
   const push = (column: string, value: string | undefined) => {
@@ -355,14 +374,19 @@ async function sources() {
   return json(list.map(serializeSource));
 }
 
-async function system(seg: string[]) {
+async function system(seg: string[]): Promise<Response> {
   if (seg[1] !== "source-health") return fail("not found", 404);
 
+  // Outer-joined like the Python route: a source with no health row must still
+  // appear, and it counts towards the summary from its own status.
   const items = await rows(
-    `SELECT se.source_id, se.status, se.healthy_since, se.last_check_at,
-            se.last_error, se.consecutive_failures, se.records_last_hour,
-            se.avg_duration_ms, se.strategy, se.notes, s.name, s.type
-     FROM source_health se JOIN sources s ON s.id = se.source_id
+    `SELECT s.id, s.name, s.type, s.status, s.status_reason, s.credentials_required,
+            s.cost, s.capabilities, s.strategy, s.last_fetch, s.last_success,
+            s.last_error, s.error_count, s.records_fetched, s.total_records,
+            COALESCE(se.consecutive_failures, 0) AS consecutive_failures,
+            se.notes
+     FROM sources s
+     LEFT JOIN source_health se ON se.source_id = s.id
      ORDER BY s.priority ASC`,
   );
 
@@ -371,5 +395,7 @@ async function system(seg: string[]) {
     const key = String(row.status);
     summary[key] = (summary[key] ?? 0) + 1;
   }
-  return json({ items, summary });
+
+  // Key is `sources`, not `items`: the frontend types expect the Python shape.
+  return json({ summary, sources: items });
 }
