@@ -115,6 +115,11 @@ async def _audit(client: httpx.AsyncClient, results: list) -> str | None:
         ("signal history", "/api/v1/signals/sig1/history"),
         ("signal related", "/api/v1/signals/sig1/related"),
         ("discover", "/api/v1/discover"),
+        (
+            "discover multi-filter",
+            "/api/v1/discover?country=KR&country=US&min_strength=50",
+        ),
+        ("discover by tag", "/api/v1/discover?tag=makeup&tag=beauty"),
         ("stats", "/api/v1/stats"),
         ("countries", "/api/v1/countries"),
         ("sources", "/api/v1/sources"),

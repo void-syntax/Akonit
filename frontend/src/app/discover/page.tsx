@@ -2,19 +2,19 @@
 
 import { useEffect, useState } from "react";
 
+import { FilterSelect } from "@/components/FilterSelect";
 import { SignalCard, SignalCardSkeleton } from "@/components/SignalCard";
 import { api } from "@/lib/api";
 import { countryName, sourceName } from "@/lib/format";
 import type { Country, Signal, SourceInfo } from "@/lib/types";
-import { useAuth } from "@/store/auth";
 
 export default function DiscoverPage() {
-  const { email } = useAuth();
   const [signals, setSignals] = useState<Signal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [country, setCountry] = useState("");
-  const [source, setSource] = useState("");
+  const [country, setCountry] = useState<string[]>([]);
+  const [source, setSource] = useState<string[]>([]);
+  const [minStrength, setMinStrength] = useState(0);
   const [countries, setCountries] = useState<Country[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
 
@@ -40,8 +40,9 @@ export default function DiscoverPage() {
       try {
         const result = await api.discover({
           limit: 40,
-          country: country || undefined,
-          source: source || undefined,
+          country: country.length ? country : undefined,
+          source: source.length ? source : undefined,
+          min_strength: minStrength > 0 ? minStrength : undefined,
         });
         setSignals(result.items);
       } catch (err) {
@@ -51,7 +52,7 @@ export default function DiscoverPage() {
         setLoading(false);
       }
     })();
-  }, [country, source]);
+  }, [country, source, minStrength]);
 
   return (
     <>
@@ -62,33 +63,49 @@ export default function DiscoverPage() {
       </p>
 
       <div className="filters">
-        <select
-          className="filter"
-          data-active={Boolean(country)}
+        <FilterSelect
+          label="Country"
           value={country}
-          onChange={(e) => setCountry(e.target.value)}
-        >
-          <option value="">All countries</option>
-          {countries.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.flag} {countryName(c.code)}
-            </option>
-          ))}
-        </select>
+          onChange={setCountry}
+          options={countries.map((c) => ({
+            value: c.code,
+            label: `${c.flag} ${countryName(c.code)}`,
+          }))}
+          allLabel="All countries"
+        />
 
-        <select
-          className="filter"
-          data-active={Boolean(source)}
+        <FilterSelect
+          label="Source"
           value={source}
-          onChange={(e) => setSource(e.target.value)}
+          onChange={setSource}
+          options={sources.map((s) => ({
+            value: s.id,
+            label: sourceName(s.id),
+          }))}
+          allLabel="All sources"
+        />
+
+        <button
+          className="filter"
+          data-active={minStrength >= 50}
+          onClick={() => setMinStrength(minStrength >= 50 ? 0 : 50)}
         >
-          <option value="">All sources</option>
-          {sources.map((s) => (
-            <option key={s.id} value={s.id}>
-              {sourceName(s.id)}
-            </option>
-          ))}
-        </select>
+          <span className="filter-label">Strength</span>
+          {minStrength >= 50 ? "≥ 50" : "Any"}
+        </button>
+
+        {(country.length > 0 || source.length > 0 || minStrength > 0) && (
+          <button
+            className="filter"
+            onClick={() => {
+              setCountry([]);
+              setSource([]);
+              setMinStrength(0);
+            }}
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}

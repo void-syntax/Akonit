@@ -113,13 +113,14 @@ export default function SignalPage() {
   const meta = STATUS_META[signal.status] ?? STATUS_META.NEW;
   const StatusIcon = STATUS_ICON[meta.icon as keyof typeof STATUS_ICON];
   const tone = strengthTone(signal.strength);
+  // No baseline means no growth can exist yet. Showing "+0%" here would claim a
+  // measurement that was never taken, so it is spelled out instead.
+  const hasGrowth = signal.growth > 0;
 
   const metrics: [string, string][] = [
-    ["Category", signal.category ?? "—"],
     ["Country", `${signal.flag ?? "🌐"} ${countryName(signal.country_code)}`],
     ["Source", sourceName(signal.source_id)],
     ["First detected", timeAgo(signal.first_seen_at)],
-    ["Signal age", timeAgo(signal.first_seen_at)],
     ["Last seen", timeAgo(signal.last_seen_at)],
     [
       "Current activity",
@@ -129,10 +130,11 @@ export default function SignalPage() {
       "Previous activity",
       formatActivity(signal.previous_activity, signal.activity_metric),
     ],
-    ["Growth", formatGrowth(signal.growth)],
+    ["Growth", hasGrowth ? formatGrowth(signal.growth) : "no baseline yet"],
     ["Acceleration", formatGrowth(signal.acceleration)],
     ["Strength", `${Math.round(signal.strength)}/100`],
     ["Cross-source", String(signal.cross_source_count)],
+    ...(signal.category ? ([["Category", signal.category]] as [string, string][]) : []),
   ];
 
   return (
@@ -160,9 +162,9 @@ export default function SignalPage() {
           </span>
           <span
             className="badge badge-growth"
-            data-tone={signal.growth > 0 ? "up" : "down"}
+            data-tone={hasGrowth ? "up" : "flat"}
           >
-            {formatGrowth(signal.growth)}
+            {hasGrowth ? formatGrowth(signal.growth) : "NO BASELINE"}
           </span>
         </div>
 

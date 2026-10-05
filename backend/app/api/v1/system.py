@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
+from sqlalchemy import Text, cast, func, or_, select
 
 from app.api.deps import SessionDep
 from app.core.config import settings
@@ -10,7 +11,6 @@ from app.models import Signal, Source, SourceHealth
 from app.models.enums import SourceStatus, SignalStatus
 from app.pipeline.collectors.registry import all_adapters
 from app.schemas.api import SignalOut
-from sqlalchemy import func, select
 
 router = APIRouter(tags=["system"])
 
@@ -77,9 +77,10 @@ async def source_health(session: SessionDep):
 async def discover(
     session: SessionDep,
     limit: int = 40,
-    country: str | None = None,
-    source: str | None = None,
-    tag: str | None = None,
+    country: list[str] | None = Query(default=None),
+    source: list[str] | None = Query(default=None),
+    tag: list[str] | None = Query(default=None),
+    min_strength: float | None = None,
 ):
     """Strongest live signals, independent of any user radar. Public."""
     statement = select(Signal).where(
@@ -87,17 +88,34 @@ async def discover(
             [SignalStatus.NEW, SignalStatus.RISING, SignalStatus.BREAKOUT]
         )
     )
+    # Same semantics as the main feed: lists, so several countries or sources can
+    # be picked at once, and everything filters in SQL so the count and the items
+    # cannot disagree.
     if country:
-        statement = statement.where(Signal.country_code == country.upper())
+        statement = statement.where(
+            Signal.country_code.in_([c.upper() for c in country])
+        )
     if source:
-        statement = statement.where(Signal.source_id == source)
+        statement = statement.where(Signal.source_id.in_(source))
+    if min_strength is not None:
+        statement = statement.where(Signal.strength >= min_strength)
+    if tag:
+        needles = [f'"{t.lower()}"' for t in tag if t]
+        if needles:
+            serialised = cast(Signal.keywords, Text)
+            statement = statement.where(
+                or_(*[serialised.like(f"%{n}%") for n in needles])
+            )
 
+    total = (
+        await session.execute(select(func.count()).select_from(statement.subquery()))
+    ).scalar_one()
     rows = (
         (
             await session.execute(
                 statement.order_by(
                     Signal.strength.desc(), Signal.growth.desc()
-                ).limit(max(limit, 200))
+                ).limit(min(max(limit, 1), 100))
             )
         )
         .scalars()
@@ -105,11 +123,8 @@ async def discover(
         .all()
     )
 
-    if tag:
-        wanted = tag.lower()
-        rows = [r for r in rows if wanted in {k.lower() for k in (r.keywords or [])}]
-
     return {
+        "total": total,
         "items": [
             {
                 field: getattr(signal, field)

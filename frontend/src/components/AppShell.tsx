@@ -7,6 +7,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import {
   BookmarkIcon,
   CompassIcon,
+  FireIcon,
+  PlusIcon,
   RadarIcon,
   RadarIcon as LogoIcon,
   SearchIcon,
@@ -87,6 +89,22 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
           </Link>
 
+          {/* Desktop navigation. The bottom tabbar is hidden above 768px, so
+              without this there is no way to move between sections at all. */}
+          <nav className="mainnav" aria-label="Main">
+            {NAV.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="mainnav-item"
+                data-active={isActive(pathname, item.href)}
+              >
+                <item.Icon size={16} />
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+
           <div className="spacer" />
 
           <span className="live" data-state={live}>
@@ -94,13 +112,24 @@ export function AppShell({ children }: { children: ReactNode }) {
             {live === "live" ? "LIVE" : live.toUpperCase()}
           </span>
 
+          {breakout > 0 && (
+            <Link href="/?tab=breakout" className="topbar-count" title="Signals breaking out right now">
+              <FireIcon size={13} />
+              {breakout}
+            </Link>
+          )}
+
+          <Link href="/radars/new" className="btn btn-sm btn-primary topbar-cta">
+            <PlusIcon size={14} />
+            <span className="desktop-only">Radar</span>
+          </Link>
+
           {email ? (
-            <Link href="/profile" className="btn btn-sm btn-ghost">
+            <Link href="/profile" className="btn btn-sm btn-ghost" title="Tags and settings">
               <UserIcon size={15} />
-              <span className="desktop-only">Local</span>
             </Link>
           ) : (
-            <span className="badge badge-neutral" title="Connecting to the local API">
+            <span className="badge badge-neutral" title="Waiting for the local API">
               Offline
             </span>
           )}
@@ -111,7 +140,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="container">{children}</div>
       </main>
 
-      <nav className="tabbar">
+      <nav className="tabbar" aria-label="Sections">
         {NAV.map((item) => (
           <Link
             key={item.href}
