@@ -2,20 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { API_URL } from "./api";
+import { api } from "./api";
 import type { Signal } from "./types";
-
-interface LiveEvent {
-  type: "hello" | "signal" | "ping";
-  signal?: Signal;
-  signals?: Signal[];
-}
 
 export type LiveState = "connecting" | "live" | "offline";
 
+const POLL_MS = 20_000;
+
 /**
- * Subscribes to the SSE feed so the UI updates without a refresh.
- * Falls back to nothing (the feed still polls on mount).
+ * Keeps the feed fresh without a refresh.
+ *
+ * There is no server-sent-events endpoint on the edge deployment, so this polls
+ * the feed endpoint instead. Polling is honest about failure: a failed request
+ * reports `offline`, whereas a successful one reports `live` even when the
+ * database is still empty. An EventSource that 404s would have reported the
+ * opposite and looked like an outage.
  */
 export function useLiveFeed(onSignal: (signal: Signal) => void) {
   const [state, setState] = useState<LiveState>("connecting");
@@ -23,43 +24,29 @@ export function useLiveFeed(onSignal: (signal: Signal) => void) {
   handlerRef.current = onSignal;
 
   useEffect(() => {
-    let source: EventSource | null = null;
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    let closed = false;
+    let active = true;
+    let timerId: ReturnType<typeof setInterval> | null = null;
 
-    const connect = () => {
-      if (closed) return;
-      setState("connecting");
-      source = new EventSource(`${API_URL}/api/v1/stream/feed`);
-
-      source.onopen = () => setState("live");
-
-      source.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data) as LiveEvent;
-          if (payload.type === "signal" && payload.signal) {
-            handlerRef.current(payload.signal);
-          }
-          setState("live");
-        } catch {
-          /* ignore malformed frames */
-        }
-      };
-
-      source.onerror = () => {
-        source?.close();
-        setState("offline");
-        // Auto-reconnect: the feed must survive a backend restart.
-        retry = setTimeout(connect, 5000);
-      };
+    const poll = async () => {
+      try {
+        const page = await api.signals({ tab: "all", limit: 5 });
+        if (!active) return;
+        setState("live");
+        // Only the newest row can be new since the last poll, so the rest of
+        // the feed is refreshed by the page's own load() instead.
+        const newest = page.items[0];
+        if (newest) handlerRef.current(newest);
+      } catch {
+        if (active) setState("offline");
+      }
     };
 
-    connect();
+    void poll();
+    timerId = setInterval(() => void poll(), POLL_MS);
 
     return () => {
-      closed = true;
-      if (retry) clearTimeout(retry);
-      source?.close();
+      active = false;
+      if (timerId) clearInterval(timerId);
     };
   }, []);
 

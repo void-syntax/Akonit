@@ -42,16 +42,18 @@ export function AppShell({ children }: { children: ReactNode }) {
     void hydrate();
   }, [hydrate]);
 
-  // Lightweight live probe so the header badge reflects reality, not a guess.
+  // Lightweight probe so the header badge reflects reality, not a guess.
   useEffect(() => {
     let active = true;
 
     async function poll() {
       try {
-        const report = await api.sourceHealth();
+        await api.sourceHealth();
         if (!active) return;
-        const ok = Object.values(report.summary).some((n) => n > 0);
-        setLive(ok ? "live" : "connecting");
+        // Reaching the API is what "online" means. An empty summary means no
+        // source has reported yet, which is a cold start, not an outage, so it
+        // must not be shown as one.
+        setLive("live");
       } catch {
         if (active) setLive("offline");
       }
