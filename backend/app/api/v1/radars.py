@@ -171,6 +171,28 @@ async def update(
     if "conditions" in data:
         root = normalize_ast(data["conditions"])
         summary = summarize_conditions(root)
+        # The denormalised columns are what the feed and radar cards filter on,
+        # so they must be refreshed whenever the tree changes.
+        radar.countries = summary.countries
+        radar.source_ids = summary.source_ids
+        radar.tag_slugs = summary.tag_slugs
+        await _replace_conditions(session, radar.id, root)
+
+    await session.commit()
+    await session.refresh(radar)
+    return _to_out(radar, await _active_signal_count(session, radar.id))
+
+
+@router.delete("/{radar_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_radar(
+    radar_id: str, session: SessionDep, user: CurrentUser
+):
+    radar = await _load_radar(session, user.id, radar_id)
+    await session.delete(radar)
+    await session.commit()
+    return None
+
+
 @router.get("/{radar_id}/conditions")
 async def get_conditions(radar_id: str, session: SessionDep, user: CurrentUser):
     """Return the AST rebuilt from the relational tables."""
