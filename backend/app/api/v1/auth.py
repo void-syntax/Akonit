@@ -119,6 +119,88 @@ async def logout(response: Response):
     return {"ok": True}
 
 
+@router.get("/me", response_model=UserOut)
+async def read_me(user: CurrentUser):
+    """Who the current request belongs to.
+
+    In local mode this never fails: there is no token to present, and the
+    dependency resolves the single local account instead.
+    """
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        is_active=user.is_active,
+        created_at=user.created_at,
+    )
+
+
+@router.get("/profile", response_model=ProfileOut)
+async def read_profile(user: CurrentUser):
+    return _profile_out(user)
+
+
+@router.patch("/profile", response_model=ProfileOut)
+async def update_profile(
+    payload: ProfileUpdate, user: CurrentUser, session: SessionDep
+):
+    """Apply the settings changes the Settings screen submits."""
+    profile = user.profile
+    if profile is None:
+        profile = UserProfile(user_id=user.id)
+        session.add(profile)
+        await session.flush()
+
+    for field in (
+        "display_name",
+        "timezone",
+        "language",
+        "telegram_chat_id",
+        "signal_threshold",
+        "quiet_hours",
+        "theme",
+    ):
+        value = getattr(payload, field, None)
+        if value is not None:
+            setattr(profile, field, value)
+
+    for field in (
+        "default_countries",
+        "default_sources",
+        "default_tags",
+        "push_subscriptions",
+    ):
+        value = getattr(payload, field, None)
+        if value is not None:
+            setattr(profile, field, value)
+
+    profile.onboarded = True
+    await session.commit()
+    await session.refresh(profile)
+    return _profile_out(profile.user)
+
+
+def _profile_out(user: User) -> ProfileOut:
+    profile = user.profile
+    return ProfileOut(
+        display_name=profile.display_name if profile else None,
+        timezone=profile.timezone if profile else "UTC",
+        language=profile.language if profile else "en",
+        telegram_chat_id=profile.telegram_chat_id if profile else None,
+        default_frequency=(
+            profile.default_frequency.value
+            if profile and profile.default_frequency
+            else "INSTANT"
+        ),
+        onboarded=bool(profile.onboarded) if profile else False,
+        signal_threshold=profile.signal_threshold if profile else 0.0,
+        default_countries=list(profile.default_countries or []) if profile else [],
+        default_sources=list(profile.default_sources or []) if profile else [],
+        default_tags=list(profile.default_tags or []) if profile else [],
+        quiet_hours=profile.quiet_hours if profile else None,
+        theme=profile.theme if profile else "dark",
+    )
+
+
 # --------------------------------------------------------------------------
 # Google OAuth
 # --------------------------------------------------------------------------

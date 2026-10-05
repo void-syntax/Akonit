@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     db_echo: bool = False
 
     # --- auth ---
+    # Local-first: the app runs on the operator's own machine and there is
+    # nobody to log in as, so token auth is off by default and a single local
+    # account is used for radars, saved signals and notifications. Flip this to
+    # false to restore JWT/OAuth auth for a hosted deployment.
+    auth_disabled: bool = True
+    local_user_email: str = "local@signalradar"
     access_token_ttl_minutes: int = 30
     refresh_token_ttl_days: int = 30
 
@@ -71,6 +77,14 @@ class Settings(BaseSettings):
         "Mozilla/5.0 (compatible; SignalRadar/0.1)"
     )
     http_max_concurrency: int = 8
+
+    # --- tag-driven collection ---
+    # Countries to cover before the user configures any radar, so a fresh
+    # install still collects real data instead of nothing.
+    default_collect_countries: list[str] = ["US", "GB", "KR", "JP", "DE", "BR"]
+    # Cap on queries handed to the collectors per run. More is slower and gets
+    # rate-limited, and past a handful the marginal signal is noise.
+    max_collect_keywords: int = 8
 
     # --- detection (configurable) ---
     detect_min_strength: float = 35.0

@@ -26,6 +26,13 @@ class _FakeQuery:
     def unique(self):  # noqa: ANN201
         return self
 
+    def scalar_one_or_none(self) -> None:  # noqa: ANN201
+        """No rows: profile defaults and radar keyword lookups read like this."""
+        return None
+
+    def scalar_one(self) -> None:  # noqa: ANN201
+        return None
+
     def all(self) -> list:  # noqa: ANN201
         return []
 
