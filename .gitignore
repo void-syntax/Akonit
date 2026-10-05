@@ -8,6 +8,10 @@ venv/
 # Databases
 *.db
 *.sqlite3
+# SQLite writes a rollback journal next to the file while it is running.
+*.db-journal
+*.db-wal
+*.db-shm
 
 # Env
 .env

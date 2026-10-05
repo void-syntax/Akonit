@@ -12,25 +12,41 @@ news), and notifies you on your phone.
 
 ## Run it locally
 
-```bash
-git clone <this repo>
-cd Project
-cp .env.example .env      # optional: every value already has a working default
-docker compose up
-```
+**Double-click `start.bat`.** That is the whole procedure.
 
-Open **http://localhost:3000**. The collector runs every **60 seconds** and
-populates the feed on boot, so the first signals appear within a minute.
+It checks what is installed, creates what is missing, starts everything, waits
+until the app actually answers, and opens <http://localhost:3000> in your
+browser. The first run takes a few minutes; later ones take seconds.
 
-Nothing external is required: no Supabase, no Vercel, no account, no API key,
-no signup. Every token in `.env` is optional and only raises a rate limit when
-you happen to have one.
+You need one of these two setups:
 
-**Requirements:** Docker Desktop. That is the whole list.
+| | |
+|---|---|
+| **Docker Desktop** — preferred. `start.bat` detects it and uses containers. |
+| **Python 3.11+ and Node.js 20+** — it falls back to a local setup on SQLite. |
 
-### Verify the engine actually collects
+Nothing else. No account, no API key, no signup, no cloud service.
 
-Run one cycle against a throwaway database, with no Docker and no Postgres:
+Not sure what you have? Run **`doctor.bat`** — it lists exactly what is missing
+and whether the app is already running.
+
+To stop it: **`stop.bat`**, or close the windows `start.bat` opened.
+
+### The three files
+
+| File | What it does |
+|---|---|
+| `start.bat` | Starts everything and opens the browser |
+| `stop.bat` | Stops it |
+| `doctor.bat` | Reports whether this machine is ready |
+
+### What you should see
+
+The collector runs every 60 seconds and fetches on boot, so real signals appear
+within about a minute. This is live data from TikTok, YouTube, X, Reddit, Google
+Trends and more — nothing is mocked.
+
+Verify the engine itself, with no Docker and no server:
 
 ```bash
 cd backend
@@ -60,15 +76,15 @@ python -m tools.check_env         # env vars vs Settings, migrations vs models
 python -m tools.list_routes       # every route, flags duplicate handlers
 ```
 
-### Running without Docker
-
-Set `DATABASE_URL` to the SQLite line in `.env.example`, then:
+### Starting it by hand
 
 ```bash
-cd backend
-pip install -r requirements.txt
-python -m app.workers.schedule
+docker compose up          # then open http://localhost:3000
 ```
+
+Without Docker, copy `backend/.env.example` to `backend/.env` (it defaults to
+SQLite), then run `python -m app.workers.schedule` from `backend/` and
+`npm run dev` in `frontend/`.
 
 ### There is no login
 

@@ -29,7 +29,7 @@ services:
   api:
     build: ./backend
     env_file: .env
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend:/app
     ports:
@@ -39,6 +39,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Without this the browser opens against an API that is still importing, and
+    # the first paint shows "cannot reach the local API" instead of signals.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
 
   # The collector. One process runs every stage (collect, match, notify,
   # metrics, cleanup) on its own schedule — there is deliberately no second
@@ -53,6 +61,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      api:
+        condition: service_healthy
 
   web:
     build: ./frontend
@@ -62,7 +72,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:
