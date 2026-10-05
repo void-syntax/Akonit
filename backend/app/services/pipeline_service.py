@@ -53,6 +53,25 @@ def aware(value: datetime | None) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _is_stale(first_seen: datetime, *, now: datetime | None = None) -> bool:
+    """True when an item is too old to be an emerging signal.
+
+    Search-driven collectors surface evergreen hits ("trending now", tutorial
+    videos from years ago) that look fresh on the feed. The cutoff is the single
+    most effective filter against that noise, and `detect_min_age_minutes`
+    finally gets used here where it was always meant to apply.
+
+    Items with no publication date fall back to observation time, so this never
+    discards a source that simply does not expose one.
+    """
+    cutoff = settings.detect_max_age_hours
+    if cutoff <= 0:
+        return False
+    reference = now or datetime.now(UTC)
+    age_hours = (reference - first_seen).total_seconds() / 3600.0
+    return age_hours > cutoff
+
+
 async def run_collection_cycle(
     session: AsyncSession,
     *,
@@ -222,6 +241,19 @@ async def _process_event(
         return
 
     if signal is None:
+        # first_seen_at must reflect when the thing was published, not when we
+        # happened to notice it. Age is the single strongest filter for a radar
+        # that only cares about what is starting now, and a stale item that
+        # looks brand new is worse than no item at all.
+        first_seen = aware(event.published_at or event.observed_at)
+        if _is_stale(first_seen):
+            logger.debug(
+                "dropping stale event (%s): published %s",
+                event.external_id,
+                first_seen.isoformat(),
+            )
+            return
+
         signal = Signal(
             cluster_id=decision.cluster_id,
             title=event.title[:500],
@@ -233,7 +265,7 @@ async def _process_event(
             source_id=event.source_id,
             source_url=event.url,
             thumbnail=event.thumbnail,
-            first_seen_at=aware(event.observed_at),
+            first_seen_at=first_seen,
             last_seen_at=aware(event.observed_at),
             current_activity=event.activity,
             previous_activity=0.0,

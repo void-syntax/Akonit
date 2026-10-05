@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     google_redirect_uri: str = ""
 
     # --- infra ---
-    database_url: str = "sqlite+aiosqlite:///./signal_radar.db"
+    # Postgres is the default so a fresh checkout with docker compose up works
+    # without editing anything. SQLite remains available for a zero-dependency
+    # trial run, but it is not what the local stack uses.
+    database_url: str = "postgresql+asyncpg://signal:signal@localhost:5432/signal_radar"
     database_url_fallback: str | None = None
     db_probe_timeout_seconds: float = 5.0
     """Used only when DATABASE_URL cannot be reached, e.g. a machine whose DNS
@@ -56,8 +59,12 @@ class Settings(BaseSettings):
     meta_app_id: str | None = None
     meta_app_secret: str | None = None
 
-    collect_interval_seconds: int = 900
-    snapshot_interval_seconds: int = 900
+    # Local-first defaults. GitHub Actions cannot run a cron faster than every
+    # five minutes and may delay it further under load, which is fatal for a
+    # feed whose whole point is catching things early. Running locally, the
+    # worker is a long-lived process and a minute is cheap.
+    collect_interval_seconds: int = 60
+    snapshot_interval_seconds: int = 60
     fetch_timeout_seconds: int = 30
     http_user_agent: str = (
         "SignalRadarBot/0.1 (+https://github.com/signal-radar) "
@@ -70,13 +77,16 @@ class Settings(BaseSettings):
     detect_rising_strength: float = 45.0
     detect_breakout_strength: float = 70.0
     detect_fading_drop_ratio: float = 0.6
-    detect_min_age_minutes: int = 0
     detect_dedup_window_minutes: int = 60
     detect_early_bonus_max: float = 25.0
     detect_persistence_windows: int = 2
     detect_min_absolute_activity: float = 5.0
     # Smoothed velocity a signal must exceed before it can be called a breakout.
     detect_breakout_velocity: float = 40.0
+    # Hard freshness cutoff, applied at ingestion. Search-driven collectors keep
+    # surfacing evergreen hits that look new; this is what stops a five-year-old
+    # video from entering the feed as a breaking trend. 0 disables the filter.
+    detect_max_age_hours: int = 72
     # Strength margin required before an established signal is demoted, which
     # stops a single noisy window from flipping it back and forth.
     detect_hysteresis: float = 8.0

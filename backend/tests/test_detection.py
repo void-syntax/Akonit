@@ -15,6 +15,7 @@ from app.pipeline.detection.metrics import (
     safe_pct,
 )
 from app.pipeline.detection.scoring import compute_strength
+from app.services.pipeline_service import _is_stale
 
 NOW = datetime.now(UTC)
 
@@ -33,9 +34,34 @@ def points(values: list[float], minutes: int = 15) -> list:
 
 
 class TestMetrics:
-    def test_growth_from_zero_is_full(self):
-        assert safe_pct(100, 0) == 100.0
+    def test_growth_without_a_baseline_is_zero(self):
+        """A first sighting has nothing to compare against.
+
+        Reporting 100% here made every newly discovered signal look like it was
+        surging, which flooded the feed with identical RISING items.
+        """
+        assert safe_pct(100, 0) == 0.0
         assert safe_pct(0, 0) == 0.0
+
+    def test_first_measurement_is_flagged_separately(self):
+        """An item that only now started reporting a count is worth knowing."""
+        first = compute_growth_acceleration(points([0, 500]), now=NOW)
+        assert first.first_measurement
+        assert not first.has_baseline
+        # It is genuinely new, but it has not grown relative to anything.
+        assert first.growth == 0.0
+
+        seen = compute_growth_acceleration(points([500, 900]), now=NOW)
+        assert seen.has_baseline
+        assert not seen.first_measurement
+        assert seen.growth == 80.0
+
+    def test_unmeasured_samples_cannot_fake_momentum(self):
+        """A feed that reports no numbers must not look like it is surging."""
+        metrics = compute_growth_acceleration(points([0, 0, 0]), now=NOW)
+        assert metrics.growth == 0.0
+        assert metrics.velocity == 0.0
+        assert metrics.persistence == 0
 
     def test_growth_percentage(self):
         assert safe_pct(200, 100) == 100.0
@@ -60,6 +86,26 @@ class TestMetrics:
     def test_persistence_counts_growing_windows(self):
         metrics = compute_growth_acceleration(points([10, 20, 40, 80]), now=NOW)
         assert metrics.persistence == 3
+
+
+class TestFreshnessFilter:
+    """Ingestion must reject evergreen items that look new.
+
+    Search-driven collectors keep returning the same old, highly-viewed hits.
+    Without a publication-date cutoff those enter the feed looking like breaking
+    news, which is the single loudest source of noise in the product.
+    """
+
+    def test_rejects_old_publication(self) -> None:
+        old = datetime(2020, 1, 1, tzinfo=UTC)
+        assert _is_stale(old) is True
+
+    def test_keeps_recent_publication(self) -> None:
+        assert _is_stale(datetime.now(UTC) - timedelta(hours=2)) is False
+
+    def test_boundary_is_configurable(self, monkeypatch) -> None:
+        monkeypatch.setattr(settings, "detect_max_age_hours", 0)
+        assert _is_stale(datetime(1990, 1, 1, tzinfo=UTC)) is False
 
 
 class TestScoring:

@@ -46,12 +46,15 @@ RE_TITLE = re.compile(r'"title":\{"runs":\[\{"text":"(.*?)"')
 
 DEFAULT_GEO: list[str] = ["US", "GB", "KR", "JP", "TR", "IN", "BR", "DE", "FR", "AE"]
 
-# Search seeds aligned with what radars care about: emerging formats and trends.
+# Search seeds. These must be *subjects* that people publish about, never the
+# word "trending" itself: searching YouTube for "trending now" returns videos
+# whose title happens to contain that phrase, which is how five-year-old
+# re-uploads ended up in the feed looking like breaking news.
 TRENDING_QUERIES: list[str] = [
-    "trending now",
-    "viral challenge",
-    "makeup trend",
+    "viral challenge 2026",
     "new ai tool",
+    "skincare routine",
+    "dance trend",
 ]
 
 # Tracked channels per niche — public RSS, no quota cost.
@@ -106,16 +109,49 @@ def is_short(length_text: str | None, url_path: str | None = None) -> bool:
 
 
 def parse_relative_time(text: str | None) -> datetime | None:
-    """'18 minutes ago' / '3 days ago' -> datetime."""
+    """Turn YouTube's relative age into a timestamp.
+
+    YouTube abbreviates aggressively: '8mo ago', '3d ago', '14h ago', with no
+    space between the number and the unit. The previous pattern required
+    whitespace, so it matched almost nothing and every video came back undated —
+    which is precisely why five-year-old uploads were treated as fresh.
+    """
     if not text:
         return None
     from datetime import timedelta
 
-    m = re.search(r"(\d+)\s+(second|minute|hour|day|week|month|year)s?", text.lower())
+    # Abbreviations first ('8mo', '3d'), then the long form ('8 months ago').
+    # Longer alternatives come first so 'mo' is not shadowed by 'm'. No trailing
+    # word boundary: it would reject '45s ago', because 's' is not a word
+    # character and therefore never has a boundary right after it.
+    m = re.search(
+        r"(\d+)\s*(seconds?|minutes?|months?|weeks?|years?|hours?|secs?|mins?|hrs?|mos?|[dsmwyh])",
+        text.lower(),
+    )
     if not m:
         return None
     amount = int(m.group(1))
-    unit = m.group(2)
+    raw_unit = m.group(2).lower()
+    # Collapse every abbreviation YouTube emits onto one canonical unit name.
+    # Listing the plural short forms explicitly avoids stripping them into an
+    # unknown token ('hrs' must not degrade to 'hr' via a blind rstrip).
+    unit = {
+        "s": "second", "sec": "second", "secs": "second",
+        "min": "minute", "mins": "minute",
+        "h": "hour", "hr": "hour", "hrs": "hour",
+        "d": "day", "days": "day",
+        "w": "week", "weeks": "week",
+        "mo": "month", "mos": "month",
+        "y": "year", "years": "year",
+        "second": "second", "seconds": "second",
+        "minute": "minute", "minutes": "minute",
+        "hour": "hour", "hours": "hour",
+        "month": "month", "months": "month",
+        "week": "week", "year": "year",
+    }.get(raw_unit)
+    if unit is None:
+        return None
+
     delta = {
         "second": timedelta(seconds=amount),
         "minute": timedelta(minutes=amount),
@@ -158,6 +194,17 @@ def extract_initial_data(html: str) -> str | None:
                 depth -= 1
                 if depth == 0:
                     return html[start : i + 1]
+    return None
+
+
+def _shorts_published_text(renderer: dict[str, Any]) -> str | None:
+    """Publication age for a shortsLockupViewModel, when it exposes one.
+
+    Shorts carry no publishedTimeText, and their overlay primaryText is the
+    caption rather than a relative time, so there is genuinely no date to read.
+    Returning None here is honest: the caller marks such items as undated so the
+    freshness filter can treat them separately instead of guessing an age.
+    """
     return None
 
 
@@ -219,10 +266,16 @@ class SearchResultsStrategy(Strategy):
         seen: set[str] = set()
         for node in walk_json(parsed):
             event = self._event_from_node(node, geo, seen)
-            if event:
-                events.append(event)
-                if len(events) >= 30:
-                    break
+            if not event:
+                continue
+            # Shorts expose no publication date, so their age is unknowable.
+            # Letting them through would put undated results into a feed whose
+            # entire promise is freshness, so only dated items are kept.
+            if event.published_at is None:
+                continue
+            events.append(event)
+            if len(events) >= 30:
+                break
         return events
 
     def _event_from_node(
@@ -248,8 +301,10 @@ class SearchResultsStrategy(Strategy):
         views_text = _text(renderer.get("viewCountText")) or _text(
             renderer.get("viewCountTextShort")
         )
-        published_text = _text(renderer.get("publishedTimeText")) or _text(
-            renderer.get("publishedTimeTextShort")
+        published_text = (
+            _text(renderer.get("publishedTimeText"))
+            or _text(renderer.get("publishedTimeTextShort"))
+            or _shorts_published_text(renderer)
         )
         length_text = _text(renderer.get("lengthText"))
         owner = (
@@ -261,6 +316,7 @@ class SearchResultsStrategy(Strategy):
         thumb = _thumbnail(renderer)
 
         short = "shortsLockupViewModel" in node or is_short(length_text)
+        published_at = parse_relative_time(published_text)
         return RawEvent(
             source_id="youtube",
             external_id=f"yt:{video_id}",
@@ -271,7 +327,7 @@ class SearchResultsStrategy(Strategy):
             activity_metric="views",
             country_code=geo,
             category="short" if short else "video",
-            published_at=parse_relative_time(published_text),
+            published_at=published_at,
             thumbnail=thumb or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
             metadata={
                 "video_id": video_id,
@@ -279,6 +335,11 @@ class SearchResultsStrategy(Strategy):
                 "views_text": views_text,
                 "length_text": length_text,
                 "published_text": published_text,
+                # Search results mix Shorts with full videos, and only full
+                # videos expose a publication date. Flagging that lets the
+                # freshness filter reject undated results instead of treating
+                # an unknown age as "brand new".
+                "dated": published_at is not None,
                 "is_short": short,
                 "geo": geo,
                 "strategy": "search_sorted",
