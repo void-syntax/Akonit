@@ -103,6 +103,7 @@ export interface FeedQuery {
   tab?: "all" | "new" | "rising" | "breakout" | "discover" | "saved";
   country?: string[];
   source?: string[];
+  /** Tag slugs; the feed only returns signals carrying them. */
   tag?: string[];
   keyword?: string;
   min_strength?: number;
