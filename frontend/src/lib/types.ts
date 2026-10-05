@@ -39,6 +39,8 @@ export interface Signal {
   keywords: string[];
   is_saved: boolean;
   is_ignored: boolean;
+  velocity: number;
+  density_count: number;
 }
 
 export interface Snapshot {

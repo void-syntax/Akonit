@@ -286,7 +286,7 @@ export default function SignalPage() {
             <LayersIcon size={13} /> Related signals
           </div>
           {related.map((item) => (
-            <SignalCard key={item.id} signal={item} signedIn={false} />
+            <SignalCard key={item.id} signal={item} />
           ))}
         </>
       )}

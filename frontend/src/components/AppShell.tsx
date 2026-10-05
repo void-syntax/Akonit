@@ -97,12 +97,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           {email ? (
             <Link href="/profile" className="btn btn-sm btn-ghost">
               <UserIcon size={15} />
-              <span className="desktop-only">Account</span>
+              <span className="desktop-only">Local</span>
             </Link>
           ) : (
-            <Link href="/login" className="btn btn-sm btn-primary">
-              Sign in
-            </Link>
+            <span className="badge badge-neutral" title="Connecting to the local API">
+              Offline
+            </span>
           )}
         </div>
       </header>

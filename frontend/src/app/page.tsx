@@ -311,7 +311,11 @@ export default function FeedPage() {
           <SignalCard
             key={signal.id}
             signal={signal}
-            signedIn={Boolean(email)}
+            onChange={(updated) =>
+              setSignals((prev) =>
+                prev.map((item) => (item.id === updated.id ? updated : item)),
+              )
+            }
           />
         ))}
       </div>
