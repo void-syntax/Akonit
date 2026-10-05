@@ -221,11 +221,3 @@ def build_default_matcher() -> KeywordTagMatcher:
     from app.seed.tag_taxonomy import TAG_ALIASES, TAG_KEYWORDS
 
     return KeywordTagMatcher(TAG_KEYWORDS, TAG_ALIASES)
-    def _keep(
-        store: dict[str, TagMatch], slug: str, matched_by: str, score: float
-    ) -> None:
-        current = store.get(slug)
-        if current is None or score > current.score:
-            store[slug] = TagMatch(slug=slug, matched_by=matched_by, score=score)
-    def match(self, document: MatchDocument) -> list[TagMatch]:
-        ...
