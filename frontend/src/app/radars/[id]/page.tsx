@@ -180,7 +180,7 @@ export default function RadarDetailPage() {
         </div>
       ) : (
         signals.map((signal) => (
-          <SignalCard key={signal.id} signal={signal} signedIn />
+          <SignalCard key={signal.id} signal={signal} />
         ))
       )}
     </>

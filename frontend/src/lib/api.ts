@@ -113,17 +113,8 @@ export interface FeedQuery {
 }
 
 export const api = {
-  register: (email: string, password: string) =>
-    request<{ access_token: string }>("/auth/register", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    }),
-
-  login: (email: string, password: string) =>
-    request<{ access_token: string }>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    }),
+  /** Exposed so Settings can show which API the app is talking to. */
+  baseUrl: () => BASE,
 
   me: () => request<{ id: string; email: string }>("/auth/me"),
 

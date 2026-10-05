@@ -70,7 +70,6 @@ export default function SavedPage() {
         <SignalCard
           key={signal.id}
           signal={signal}
-          signedIn
           onChange={(updated) =>
             setSignals((prev) =>
               updated.is_saved

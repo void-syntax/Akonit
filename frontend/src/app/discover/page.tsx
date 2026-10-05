@@ -115,7 +115,6 @@ export default function DiscoverPage() {
         <SignalCard
           key={signal.id}
           signal={signal}
-          signedIn={Boolean(email)}
         />
       ))}
     </>
