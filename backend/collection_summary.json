@@ -1,0 +1,19 @@
+{
+  "countries": [
+    "BR",
+    "DE",
+    "GB",
+    "JP",
+    "KR",
+    "US"
+  ],
+  "fetched": 485,
+  "signals_created": 279,
+  "signals_updated": 58,
+  "sources_ok": 14,
+  "sources_failed": 1,
+  "metrics_refreshed": 279,
+  "errors": [
+    "instagram: graph_api: no Instagram Graph API token configured. Public hashtag pages load data through an authenticated internal call, so we do not read them. Beauty/fashion signals are still covered by TikTok, YouTube, X and Google Trends."
+  ]
+}

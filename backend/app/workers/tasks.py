@@ -172,8 +172,7 @@ async def collection_keywords(session: AsyncSession) -> list[str]:
     )
     for radar in radars:
         terms.extend(str(t) for t in (radar.tag_slugs or []) if t)
-        for text in _radar_keyword_conditions(session, radar.id):
-            terms.append(text)
+        terms.extend(await _radar_keyword_conditions(session, radar.id))
 
     # De-duplicate while preserving order, and keep the list short: a hundred
     # queries per source is slower and gets rate-limited for no benefit.
@@ -189,14 +188,27 @@ async def collection_keywords(session: AsyncSession) -> list[str]:
 
 
 async def _radar_keyword_conditions(session: AsyncSession, radar_id: str) -> list[str]:
-    """Keyword values from a radar's condition tree, if any."""
-    from app.models import RadarCondition
+    """Keyword values from a radar's condition tree, if any.
+
+    Conditions hang off a group, and the group carries the radar, so the lookup
+    joins rather than filtering `radar_conditions.radar_id` (a column that does
+    not exist).
+    """
+    from app.models import RadarCondition, RadarConditionGroup
     from app.models.enums import ConditionType
 
     rows = (
         (
             await session.execute(
-                select(RadarCondition).where(RadarCondition.radar_id == radar_id)
+                select(RadarCondition)
+                .join(
+                    RadarConditionGroup,
+                    RadarConditionGroup.id == RadarCondition.group_id,
+                )
+                .where(
+                    RadarConditionGroup.radar_id == radar_id,
+                    RadarCondition.condition_type == ConditionType.KEYWORD,
+                )
             )
         )
         .scalars()
@@ -204,8 +216,6 @@ async def _radar_keyword_conditions(session: AsyncSession, radar_id: str) -> lis
     )
     out: list[str] = []
     for condition in rows:
-        if condition.condition_type != ConditionType.KEYWORD:
-            continue
         value = condition.value_json
         if isinstance(value, list):
             out.extend(str(v) for v in value if v)

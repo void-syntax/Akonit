@@ -40,23 +40,19 @@ services:
       redis:
         condition: service_healthy
 
+  # The collector. One process runs every stage (collect, match, notify,
+  # metrics, cleanup) on its own schedule — there is deliberately no second
+  # scheduler service, because two of them would collect twice as often and
+  # double the load on the free public sources.
   worker:
-    build: ./backend
-    env_file: .env
-    command: python -m app.workers.run
-    volumes:
-      - ./backend:/app
-    depends_on:
-      - api
-
-  beat:
     build: ./backend
     env_file: .env
     command: python -m app.workers.schedule
     volumes:
       - ./backend:/app
     depends_on:
-      - api
+      db:
+        condition: service_healthy
 
   web:
     build: ./frontend

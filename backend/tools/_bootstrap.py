@@ -1,13 +1,11 @@
 """Shared bootstrap for the CLI tools.
 
-The API resolves the database in its lifespan; a standalone script has to do the
-same, otherwise it would connect to DATABASE_URL directly and ignore an explicit
-fallback.
+The API creates its tables in its lifespan; a standalone script has to do the
+same, otherwise it would query a database that does not have them yet.
 
-Schema ownership is Alembic's alone. The collection tools run in GitHub Actions
-against Postgres, where `alembic upgrade head` is the one thing allowed to change
-the schema, so `prepare()` brings the database to head instead of poking at it
-with ad-hoc DDL.
+Schema ownership is Alembic's alone. These tools bring the database to head
+rather than poking at it with ad-hoc DDL, so a script can never leave the schema
+in a state the API would not understand.
 """
 
 from __future__ import annotations
@@ -32,26 +30,27 @@ def _albic_config():  # noqa: ANN202
     return config
 
 
-async def _needs_baseline() -> bool:
-    """True when the tables exist but Alembic has never recorded a revision.
+async def _already_at_head() -> bool:
+    """True when Alembic has recorded the current revision.
 
-    The Supabase schema was applied by hand before Alembic existed, so a
-    database can already hold every table while `alembic_version` is empty. An
-    unconditional `upgrade head` would then fail on `CREATE TABLE` for a table
-    that is already there.
+    A database can hold every table while `alembic_version` is empty, in which
+    case `upgrade head` would fail on `CREATE TABLE` for a table that is already
+    there. SQLite never has an `alembic_version` at all, and is handled by the
+    caller instead.
     """
     from sqlalchemy import text
 
+    from app.core.config import settings
     from app.db.session import engine
 
+    if settings.is_sqlite:
+        return True
+
     async with engine.connect() as conn:
-        versioned = await conn.execute(
+        exists = await conn.execute(
             text("SELECT to_regclass('public.alembic_version')")
         )
-        if versioned.scalar() is not None:
-            return False
-        signals = await conn.execute(text("SELECT to_regclass('public.signals')"))
-        return signals.scalar() is not None
+        return exists.scalar() is not None
 
 
 def _apply_alembic(stamp: bool) -> None:
@@ -67,16 +66,20 @@ def _apply_alembic(stamp: bool) -> None:
 
 
 async def prepare() -> None:
-    """Point the shared engine and session factory at the resolved database."""
-    from app.db import session as db_session
+    """Make sure the database exists and is at the current revision."""
+    from app.core.config import settings
 
-    db_session.engine = await db_session.create_engine()
-    db_session.SessionLocal.configure(bind=db_session.engine)
+    if settings.is_sqlite:
+        # The Postgres-flavoured migration cannot run against a file SQLite
+        # database, and the API creates those tables directly.
+        from app.db.session import init_models
 
-    stamp = await _needs_baseline()
+        await init_models()
+        return
+
+    stamp = not await _already_at_head()
     if stamp:
-        print("schema already present; stamping alembic baseline at head")
-
+        print("schema present without an alembic revision; stamping at head")
     await asyncio.to_thread(_apply_alembic, stamp)
 
 

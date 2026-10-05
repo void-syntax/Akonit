@@ -1,0 +1,3 @@
+url: postgresql+asyncpg://postgres:***@db.qtozkhuqaqnglztaalkx.supabase.co:5432/postgres
+database: Postgres
+FAILED: gaierror: [Errno 11004] getaddrinfo failed
