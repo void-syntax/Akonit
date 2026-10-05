@@ -6,7 +6,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { SignalCard, SignalCardSkeleton } from "@/components/SignalCard";
 import { api, type FeedQuery } from "@/lib/api";
 import { countryName, sourceName } from "@/lib/format";
-import type { Country, PublicStats, Radar, Signal } from "@/lib/types";
+import type {
+  Country,
+  PublicStats,
+  Radar,
+  Signal,
+  SourceInfo,
+  Tag,
+} from "@/lib/types";
 import { useLiveFeed } from "@/lib/useLiveFeed";
 import { useAuth } from "@/store/auth";
 
@@ -49,10 +56,14 @@ export default function FeedPage() {
   const [stats, setStats] = useState<PublicStats | null>(null);
   const [radars, setRadars] = useState<Radar[]>([]);
   const [radarFilter, setRadarFilter] = useState<string | null>(null);
-  const [countryFilter, setCountryFilter] = useState<string | null>(null);
-  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [countryFilter, setCountryFilter] = useState<string[]>([]);
+  const [sourceFilter, setSourceFilter] = useState<string[]>([]);
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
   const [minStrength, setMinStrength] = useState(0);
   const [countries, setCountries] = useState<Country[]>([]);
+  const [sources, setSources] = useState<SourceInfo[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,8 +71,10 @@ export default function FeedPage() {
     try {
       const query: FeedQuery = { tab, limit: 30 };
       if (radarFilter) query.radar_id = radarFilter;
-      if (countryFilter) query.country = [countryFilter];
-      if (sourceFilter) query.source = [sourceFilter];
+      if (countryFilter.length) query.country = countryFilter;
+      if (sourceFilter.length) query.source = sourceFilter;
+      if (tagFilter.length) query.tag = tagFilter;
+      if (search.trim()) query.keyword = search.trim();
       if (minStrength > 0) query.min_strength = minStrength;
 
       const page = await api.signals(query);
@@ -73,7 +86,15 @@ export default function FeedPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, radarFilter, countryFilter, sourceFilter, minStrength]);
+  }, [
+    tab,
+    radarFilter,
+    countryFilter,
+    sourceFilter,
+    tagFilter,
+    search,
+    minStrength,
+  ]);
 
   useEffect(() => {
     void load();
@@ -113,6 +134,23 @@ export default function FeedPage() {
     })();
   }, []);
 
+  // Sources and tags drive the filter bar, so they load once and stay put:
+  // re-fetching them on every tab change would make the UI feel unstable.
+  useEffect(() => {
+    void (async () => {
+      try {
+        setSources(await api.sources());
+      } catch {
+        setSources([]);
+      }
+      try {
+        setTags(await api.tags());
+      } catch {
+        setTags([]);
+      }
+    })();
+  }, []);
+
   const onLiveSignal = useCallback(
     (signal: Signal) => {
       setSignals((prev) => {
@@ -127,7 +165,12 @@ export default function FeedPage() {
 
   const liveState = useLiveFeed(onLiveSignal);
   const hasFilters = Boolean(
-    radarFilter || countryFilter || sourceFilter || minStrength > 0,
+    radarFilter ||
+      countryFilter.length ||
+      sourceFilter.length ||
+      tagFilter.length ||
+      search.trim() ||
+      minStrength > 0,
   );
 
   const sourceOptions = useMemo(() => {
@@ -226,7 +269,16 @@ export default function FeedPage() {
         </div>
 
         <div className="filters">
-          {email && radars.length > 0 && (
+          <input
+            className="filter filter-search"
+            type="search"
+            value={search}
+            placeholder="Search titles and descriptions…"
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search signals"
+          />
+
+          {radars.length > 0 && (
             <FilterSelect
               label="Radar"
               value={radarFilter}
@@ -247,18 +299,27 @@ export default function FeedPage() {
             allLabel="All countries"
           />
 
-          {sourceOptions.length > 0 && (
-            <FilterSelect
-              label="Source"
-              value={sourceFilter}
-              onChange={setSourceFilter}
-              options={sourceOptions.map((s) => ({
-                value: s,
-                label: sourceName(s),
-              }))}
-              allLabel="All sources"
-            />
-          )}
+          <FilterSelect
+            label="Source"
+            value={sourceFilter}
+            onChange={setSourceFilter}
+            options={sources.map((s) => ({
+              value: s.id,
+              label: sourceName(s.id),
+            }))}
+            allLabel="All sources"
+          />
+
+          <FilterSelect
+            label="Tag"
+            value={tagFilter}
+            onChange={setTagFilter}
+            options={tags.map((t) => ({
+              value: t.slug,
+              label: `${t.emoji ?? ""} ${t.name}`.trim(),
+            }))}
+            allLabel="All tags"
+          />
 
           <button
             className="filter"
@@ -274,8 +335,10 @@ export default function FeedPage() {
               className="filter"
               onClick={() => {
                 setRadarFilter(null);
-                setCountryFilter(null);
-                setSourceFilter(null);
+                setCountryFilter([]);
+                setSourceFilter([]);
+                setTagFilter([]);
+                setSearch("");
                 setMinStrength(0);
               }}
             >
@@ -283,6 +346,24 @@ export default function FeedPage() {
             </button>
           )}
         </div>
+
+        {/* The active tag selection is the answer to "what am I looking at?" */}
+        {tagFilter.length > 0 && (
+          <div className="card-tags filter-active">
+            <span className="dim text-xs">Filtered by</span>
+            {tagFilter.map((slug) => (
+              <button
+                key={slug}
+                className="tag-chip tag-chip-active"
+                onClick={() =>
+                  setTagFilter((prev) => prev.filter((t) => t !== slug))
+                }
+              >
+                #{slug.replace(/-/g, " ")} ×
+              </button>
+            ))}
+          </div>
+        )}
 
         {error && <div className="alert alert-error">{error}</div>}
 
@@ -296,14 +377,33 @@ export default function FeedPage() {
 
         {!loading && signals.length === 0 && (
           <div className="empty">
-            <div className="empty-title">No signals match yet</div>
+            <div className="empty-title">
+              {hasFilters ? "No signals match these filters" : "No signals yet"}
+            </div>
             <p className="empty-text">
-              The worker collects every 15 minutes. Broaden the filters, or
-              create a radar and it will start matching for you.
+              {hasFilters
+                ? "Try removing a filter, or widen the country and tag selection."
+                : "The collector runs every minute. It needs a moment to fetch the first cycle."}
             </p>
-            <Link className="btn btn-primary" href="/radars/new">
-              Create a radar
-            </Link>
+            {hasFilters ? (
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setRadarFilter(null);
+                  setCountryFilter([]);
+                  setSourceFilter([]);
+                  setTagFilter([]);
+                  setSearch("");
+                  setMinStrength(0);
+                }}
+              >
+                Clear filters
+              </button>
+            ) : (
+              <Link className="btn btn-primary" href="/radars/new">
+                Create a radar
+              </Link>
+            )}
           </div>
         )}
 
@@ -323,6 +423,13 @@ export default function FeedPage() {
   );
 }
 
+/**
+ * One filter dropdown.
+ *
+ * Accepts either a single value (radar) or a list (country / source / tag), so
+ * the same control serves both "pick one radar" and "pick Korea and Japan",
+ * which is what the filter bar needs.
+ */
 function FilterSelect({
   label,
   value,
@@ -331,24 +438,74 @@ function FilterSelect({
   allLabel,
 }: {
   label: string;
-  value: string | null;
-  onChange: (next: string | null) => void;
+  value: string | string[] | null;
+  onChange: (next: never) => void;
   options: { value: string; label: string }[];
   allLabel: string;
 }) {
+  const selected = Array.isArray(value) ? value : value ? [value] : [];
+
+  function toggle(option: string) {
+    if (Array.isArray(value)) {
+      const next = selected.includes(option)
+        ? selected.filter((v) => v !== option)
+        : [...selected, option];
+      (onChange as (v: string[]) => void)(next);
+    } else {
+      // Single-select: picking the active option clears it, which is the
+      // fastest way to undo a filter.
+      (onChange as (v: string | null) => void)(
+        value === option ? null : option,
+      );
+    }
+  }
+
   return (
-    <select
-      className="filter"
-      data-active={Boolean(value)}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value || null)}
-    >
-      <option value="">{`${label}: ${allLabel}`}</option>
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+    <div className="filter-group">
+      <button
+        type="button"
+        className="filter"
+        data-active={selected.length > 0}
+        onClick={() => toggle(selected[0] ?? options[0]?.value ?? "")}
+        aria-pressed={selected.length > 0}
+      >
+        <span className="filter-label">{label}</span>
+        {selected.length === 0
+          ? allLabel
+          : selected.length === 1
+            ? (options.find((o) => o.value === selected[0])?.label ?? selected[0])
+            : `${selected.length} selected`}
+      </button>
+
+      {options.length > 0 && (
+        <div className="filter-menu" role="group" aria-label={label}>
+          <button
+            type="button"
+            className="filter-menu-item filter-menu-clear"
+            onClick={() =>
+              Array.isArray(value)
+                ? (onChange as (v: string[]) => void)([])
+                : (onChange as (v: string | null) => void)(null)
+            }
+          >
+            {allLabel}
+          </button>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className="filter-menu-item"
+              data-active={selected.includes(option.value)}
+              onClick={() => toggle(option.value)}
+            >
+              <span className="filter-menu-check" aria-hidden="true">
+                {selected.includes(option.value) ? "✓" : ""}
+              </span>
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

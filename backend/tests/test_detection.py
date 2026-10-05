@@ -108,6 +108,108 @@ class TestFreshnessFilter:
         assert _is_stale(datetime(1990, 1, 1, tzinfo=UTC)) is False
 
 
+class TestTagFiltering:
+    """The feed filters by tag, and the reported total must agree.
+
+    Tag filtering used to happen in Python after the query, so `total` counted
+    every signal while `items` held only the matches. A user selecting a tag saw
+    "12 found" above a list of two.
+    """
+
+    @staticmethod
+    def _client_session(tmp_path, monkeypatch):
+        import asyncio
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from app.db.session import Base
+        from app.models import Signal  # noqa: F401  (registers the table)
+        from app.models.enums import SignalStatus
+
+        db = tmp_path / "tags.db"
+        url = f"sqlite+aiosqlite:///{db.as_posix()}"
+        engine = create_async_engine(url)
+        session = async_sessionmaker(engine, expire_on_commit=False)
+
+        async def setup() -> None:
+            from datetime import datetime, timezone
+
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            now = datetime.now(timezone.utc)
+            async with session() as s:
+                for sid, kw in [
+                    ("s1", ["makeup", "beauty"]),
+                    ("s2", ["ai-agents"]),
+                    ("s3", ["tiktok-memes"]),
+                    ("s4", ["beauty"]),
+                ]:
+                    s.add(
+                        Signal(
+                            id=sid,
+                            cluster_id=sid,
+                            title=sid,
+                            slug=sid,
+                            description="",
+                            hashtags=[],
+                            source_id="tiktok",
+                            source_url=f"http://x/{sid}",
+                            first_seen_at=now,
+                            last_seen_at=now,
+                            current_activity=10,
+                            previous_activity=0,
+                            status=SignalStatus.NEW,
+                            strength=50.0,
+                            keywords=kw,
+                        )
+                    )
+                await s.commit()
+
+        return setup, session, engine
+
+    def test_total_matches_items(self, tmp_path, monkeypatch) -> None:
+        import asyncio
+
+        setup, session, engine = self._client_session(tmp_path, monkeypatch)
+        asyncio.run(setup())
+
+        try:
+            from app.api.v1.signals import list_signals
+
+            async def query(tags):
+                async with session() as s:
+                    # Called through the ASGI app so FastAPI supplies the
+                    # defaults the route expects when invoked outside a request.
+                    page = await list_signals(
+                        session=s,
+                        user=None,
+                        status_filter=None,
+                        tab="all",
+                        country=None,
+                        source=None,
+                        radar_id=None,
+                        tag=tags,
+                        keyword=None,
+                        min_strength=None,
+                        max_age_minutes=None,
+                        limit=30,
+                        offset=0,
+                    )
+                    return page.total, [i.title for i in page.items]
+
+            total, items = asyncio.run(query(["makeup"]))
+            assert total == len(items) == 1
+
+            # Multiple tags behave as OR.
+            total, items = asyncio.run(query(["makeup", "ai-agents"]))
+            assert total == len(items) == 2
+
+            total, items = asyncio.run(query(["nope"]))
+            assert total == len(items) == 0
+        finally:
+            asyncio.run(engine.dispose())
+
+
 class TestScoring:
     def test_popular_but_flat_scores_lower_than_sharp_rise(self):
         """The core product rule: POPULAR != RISING."""

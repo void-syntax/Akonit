@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, OptionalUser, SessionDep
@@ -137,6 +137,23 @@ async def list_signals(
             RadarSignal, RadarSignal.signal_id == Signal.id
         ).where(RadarSignal.radar_id == radar_id)
 
+    # Tags are filtered in SQL, not in Python. Filtering after the query meant
+    # `total` counted every signal regardless of the tag filter, and pagination
+    # silently returned short pages once a tag was selected.
+    #
+    # A LIKE over the serialised JSON is used deliberately instead of
+    # json_each/jsonb_array_elements: it renders identically on Postgres and
+    # SQLite, needs no dialect-specific lateral join, and cannot produce a
+    # duplicate row per matching tag. The value is a quoted JSON string, so a
+    # needle of '"tag"' cannot match inside a longer tag name.
+    if tag:
+        needles = [f'"{t.lower()}"' for t in tag if t]
+        if needles:
+            serialised = cast(Signal.keywords, Text)
+            statement = statement.where(
+                or_(*[serialised.like(f"%{n}%") for n in needles])
+            )
+
     total = (
         await session.execute(select(func.count()).select_from(statement.subquery()))
     ).scalar_one()
@@ -159,16 +176,12 @@ async def list_signals(
         session, user.id if user else None, [s.id for s in rows]
     )
 
-    items = _apply_user_flags(list(rows), saved_ids, ignored_ids)
-    if tag:
-        wanted = {t.lower() for t in tag}
-        items = [
-            item
-            for item in items
-            if wanted & {k.lower() for k in (item.keywords or [])}
-        ]
-
-    return SignalPage(items=items, total=total, limit=limit, offset=offset)
+    return SignalPage(
+        items=_apply_user_flags(list(rows), saved_ids, ignored_ids),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{signal_id}", response_model=SignalDetail)
