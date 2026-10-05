@@ -26,6 +26,30 @@ Every optional token in `.env` just upgrades a collector when you have one.
 Run without Docker at all by setting `DATABASE_URL` to the SQLite line in
 `.env.example` and running `python -m app.workers.schedule` from `backend/`.
 
+### There is no login
+
+`auth_disabled` defaults to `true`, so the API resolves a single local account
+and every request uses it. Radars, saved signals and notifications work
+immediately, with no token, cookie or OAuth anywhere in the flow. Set
+`auth_disabled=false` and `local_user_email` to bring real auth back for a
+hosted deployment.
+
+### The engine searches what you asked for
+
+Collection is tag-driven rather than fixed. The keywords inside your custom tags
+and radar `KEYWORD` conditions become the queries the collectors actually run,
+and the countries come from your radars (falling back to your defaults, then to a
+built-in list). A radar for "Korea + Makeup" makes the collectors fetch Korean
+makeup content instead of whatever seed happened to be hardcoded.
+
+### Checking it works
+
+```bash
+cd backend
+python -m tools.audit_endpoints   # 38/38 endpoints the UI depends on
+python -m pytest                  # unit tests
+```
+
 ### Why local is the primary target
 
 GitHub Actions cannot run a cron faster than every five minutes, and GitHub
