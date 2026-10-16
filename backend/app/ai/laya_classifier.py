@@ -180,21 +180,24 @@ async def classify_signal(
     title: str,
     description: str,
     source_id: str,
-    growth: float,
-    strength: float,
-    status: str,
+    growth: float | None = 0.0,
+    strength: float | None = 0.0,
+    status: str | None = "new",
 ) -> LayaClassification:
     """Async wrapper: runs Laya in a thread pool so it never blocks the event loop."""
     loop = asyncio.get_running_loop()
+    safe_growth = float(growth or 0.0)
+    safe_strength = float(strength or 0.0)
+    safe_status = str(status or "new")
     return await loop.run_in_executor(
         _executor,
         _classify_sync,
         title,
         description,
         source_id,
-        growth,
-        strength,
-        status,
+        safe_growth,
+        safe_strength,
+        safe_status,
     )
 
 

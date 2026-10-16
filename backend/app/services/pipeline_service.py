@@ -326,6 +326,28 @@ async def _process_event(
             source_metadata=event.metadata or {},
             status=SignalStatus.NEW,
         )
+        
+        # --- Hook Laya AI Classification ---
+        try:
+            from app.ai.laya_classifier import classify_signal
+            classification = await classify_signal(
+                title=event.title,
+                description=event.description or "",
+                source_id=event.source_id,
+                growth=signal.growth,
+                strength=signal.strength,
+                status=signal.status.value if hasattr(signal.status, "value") else str(signal.status),
+            )
+            signal.ai_priority = classification["priority"]
+            signal.ai_priority_score = classification["priority_score"]
+            signal.ai_category = classification["category"]
+            signal.ai_should_notify = classification["should_notify"]
+            signal.ai_noise_probability = classification["noise_probability"]
+            signal.ai_trending_score = classification["trending_score"]
+            signal.ai_classified_at = datetime.now(UTC)
+        except Exception as laya_exc:
+            logger.debug("Laya classification during ingestion failed: %r", laya_exc)
+
         session.add(signal)
         await session.flush()
         seen_clusters.add(decision.cluster_id)
