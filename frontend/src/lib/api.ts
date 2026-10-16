@@ -219,6 +219,9 @@ export const api = {
   unmute: (id: string) =>
     request<void>(`/signals/${id}/mute`, { method: "DELETE" }),
 
+  deleteSignal: (id: string) =>
+    request<void>(`/signals/${id}`, { method: "DELETE" }),
+
   saved: () => request<Signal[]>("/saved"),
 
   radars: () => request<Radar[]>("/radars"),

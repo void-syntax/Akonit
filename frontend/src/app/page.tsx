@@ -17,7 +17,7 @@ import type {
   SourceInfo,
   Tag,
 } from "@/lib/types";
-import { useLiveFeed } from "@/lib/useLiveFeed";
+import type { LiveState } from "@/lib/useLiveFeed";
 import { useAuth } from "@/store/auth";
 
 const TABS = [
@@ -35,6 +35,8 @@ export default function FeedPage() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [liveState, setLiveState] = useState<LiveState>("live");
   const [error, setError] = useState<string | null>(null);
 
   const [stats, setStats] = useState<PublicStats | null>(null);
@@ -140,18 +142,44 @@ export default function FeedPage() {
   }, []);
 
   const onLiveSignal = useCallback(
-    (signal: Signal) => {
-      setSignals((prev) => {
-        if (prev.some((s) => s.id === signal.id)) return prev;
-        if (tab !== "all") return prev;
-        return [signal, ...prev].slice(0, 30);
-      });
-      setTotal((prev) => prev + 1);
+    async () => {
+      try {
+        const query: FeedQuery = { tab, limit: 30 };
+        if (radarFilter) query.radar_id = radarFilter;
+        if (countryFilter.length) query.country = countryFilter;
+        if (sourceFilter.length) query.source = sourceFilter;
+        if (tagFilter.length) query.tag = tagFilter;
+        if (search.trim()) query.keyword = search.trim();
+        if (minStrength > 0) query.min_strength = minStrength;
+
+        const page = await api.signals(query);
+        setSignals(page.items);
+        setTotal(page.total);
+        setLiveState("live");
+      } catch {
+        setLiveState("offline");
+      }
     },
-    [tab],
+    [tab, radarFilter, countryFilter, sourceFilter, tagFilter, search, minStrength],
   );
 
-  const liveState = useLiveFeed(onLiveSignal);
+  useEffect(() => {
+    let active = true;
+    let timerId: ReturnType<typeof setInterval> | null = null;
+
+    const poll = async () => {
+      if (!active) return;
+      await onLiveSignal();
+    };
+
+    timerId = setInterval(() => void poll(), 10_000);
+
+    return () => {
+      active = false;
+      if (timerId) clearInterval(timerId);
+    };
+  }, [onLiveSignal]);
+
   const hasFilters = Boolean(
     radarFilter ||
       countryFilter.length ||
@@ -355,6 +383,9 @@ export default function FeedPage() {
               setSignals((prev) =>
                 prev.map((item) => (item.id === updated.id ? updated : item)),
               )
+            }
+            onDelete={(id) =>
+              setSignals((prev) => prev.filter((item) => item.id !== id))
             }
           />
         ))}

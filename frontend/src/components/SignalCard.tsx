@@ -10,6 +10,7 @@ import {
   LayersIcon,
   PauseIcon,
   SparkIcon,
+  TrashIcon,
   TrendingUpIcon,
 } from "@/components/icons";
 import { api } from "@/lib/api";
@@ -29,6 +30,8 @@ interface Props {
   signal: Signal;
   /** Optional: lets the parent reflect a save/mute immediately in its list. */
   onChange?: (updated: Signal) => void;
+  /** Optional: lets the parent remove the signal immediately on delete. */
+  onDelete?: (id: string) => void;
 }
 
 const STATUS_ICON = {
@@ -40,7 +43,7 @@ const STATUS_ICON = {
 
 type StatusIconName = keyof typeof STATUS_ICON;
 
-export function SignalCard({ signal, onChange }: Props) {
+export function SignalCard({ signal, onChange, onDelete }: Props) {
   const [saved, setSaved] = useState(signal.is_saved);
   const [muted, setMuted] = useState(signal.is_ignored);
   const [busy, setBusy] = useState(false);
@@ -98,6 +101,21 @@ export function SignalCard({ signal, onChange }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update mute state");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm("Удалить этот сигнал?")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteSignal(signal.id);
+      onDelete?.(signal.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось удалить сигнал");
       setBusy(false);
     }
   }
@@ -242,6 +260,16 @@ export function SignalCard({ signal, onChange }: Props) {
           title={muted ? "Hidden" : "Hide"}
         >
           <PauseIcon size={14} />
+        </button>
+
+        <button
+          className="btn btn-sm btn-icon btn-icon-danger"
+          onClick={handleDelete}
+          disabled={busy}
+          aria-label="Удалить сигнал"
+          title="Удалить сигнал"
+        >
+          <TrashIcon size={14} />
         </button>
       </div>
     </article>

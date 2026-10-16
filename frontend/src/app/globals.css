@@ -673,10 +673,21 @@ input:focus, select:focus, textarea:focus {
   background: rgba(255, 77, 99, 0.08);
 }
 
+.btn-icon-danger {
+  color: var(--text-3);
+  transition: all var(--t-fast);
+}
+
 @media (hover: hover) {
   .btn-danger:hover {
     background: rgba(255, 77, 99, 0.14);
     border-color: rgba(255, 77, 99, 0.5);
+  }
+
+  .btn-icon-danger:hover {
+    color: var(--danger);
+    background: rgba(255, 77, 99, 0.12);
+    border-color: rgba(255, 77, 99, 0.4);
   }
 }
 

@@ -399,6 +399,32 @@ async def unmute_signal(signal_id: str, session: SessionDep, user: CurrentUser):
         await session.commit()
 
 
+@router.delete("/{signal_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_signal(signal_id: str, session: SessionDep, user: OptionalUser):
+    """Delete a signal and all its related references (snapshots, saves, mutes, radar matches)."""
+    from sqlalchemy import delete
+    from app.models.signals import SignalSnapshot
+    from app.models.notifications import SavedSignal, IgnoredSignal
+    from app.models.radars import RadarSignal
+    from app.models.tags import SignalTag
+    from app.models.taxonomy import SourceEvent
+
+    signal = await _get_signal(session, signal_id)
+
+    # Clean up dependent records safely across all SQL dialects
+    await session.execute(delete(SignalSnapshot).where(SignalSnapshot.signal_id == signal_id))
+    await session.execute(delete(SavedSignal).where(SavedSignal.signal_id == signal_id))
+    await session.execute(delete(IgnoredSignal).where(IgnoredSignal.signal_id == signal_id))
+    await session.execute(delete(RadarSignal).where(RadarSignal.signal_id == signal_id))
+    await session.execute(delete(SignalTag).where(SignalTag.signal_id == signal_id))
+    await session.execute(
+        SourceEvent.__table__.update().where(SourceEvent.signal_id == signal_id).values(signal_id=None)
+    )
+
+    await session.delete(signal)
+    await session.commit()
+
+
 async def _get_signal(session: SessionDep, signal_id: str) -> Signal:
     signal = (
         await session.execute(select(Signal).where(Signal.id == signal_id))
