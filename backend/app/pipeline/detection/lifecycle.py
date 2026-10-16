@@ -44,6 +44,7 @@ def classify(
     previous_status: SignalStatus = SignalStatus.NEW,
     cross_source_count: int = 1,
     window_minutes: int = 15,
+    ai_priority_score: float = 0.0,
 ) -> tuple[SignalStatus, float]:
     """Return (status, strength) for the current observation.
 
@@ -56,7 +57,7 @@ def classify(
       pushed almost everything into FADING before.
     """
     strength = compute_strength(
-        metrics, cross_source_count=cross_source_count, window_minutes=window_minutes
+        metrics, cross_source_count=cross_source_count, window_minutes=window_minutes, ai_priority_score=ai_priority_score
     )
 
     velocity = metrics.velocity

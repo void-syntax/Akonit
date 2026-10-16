@@ -345,6 +345,11 @@ async def _process_event(
             signal.ai_noise_probability = classification["noise_probability"]
             signal.ai_trending_score = classification["trending_score"]
             signal.ai_classified_at = datetime.now(UTC)
+
+            # Smart noise filtering: if noise probability is very high (> 0.85) and strength is low, drop or mark as fading/noise
+            if signal.ai_noise_probability > 0.85 and signal.strength < 35.0:
+                logger.debug("dropping high-probability noise event (%s): noise_prob=%.2f", event.external_id, signal.ai_noise_probability)
+                return
         except Exception as laya_exc:
             logger.debug("Laya classification during ingestion failed: %r", laya_exc)
 
@@ -447,6 +452,7 @@ async def _recompute(
         previous_status=signal.status,
         cross_source_count=signal.cross_source_count,
         window_minutes=WINDOW_MINUTES,
+        ai_priority_score=signal.ai_priority_score or 0.0,
     )
 
     signal.growth = round(metrics.growth, 2)
@@ -474,7 +480,7 @@ async def _recompute(
             strength=signal.strength,
             status=signal.status,
             rank=rank if rank is not None else metrics.rank,
-            extra={"components": strength_components(metrics)},
+            extra={"components": strength_components(metrics, cross_source_count=signal.cross_source_count, window_minutes=WINDOW_MINUTES, ai_priority_score=signal.ai_priority_score or 0.0)},
         )
     )
 

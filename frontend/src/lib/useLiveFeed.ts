@@ -25,28 +25,34 @@ export function useLiveFeed(onSignal: (signal: Signal) => void) {
 
   useEffect(() => {
     let active = true;
-    let timerId: ReturnType<typeof setInterval> | null = null;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    let currentInterval = 15_000;
 
     const poll = async () => {
       try {
         const page = await api.signals({ tab: "all", limit: 5 });
         if (!active) return;
         setState("live");
-        // Only the newest row can be new since the last poll, so the rest of
-        // the feed is refreshed by the page's own load() instead.
+        currentInterval = 15_000;
         const newest = page.items[0];
         if (newest) handlerRef.current(newest);
       } catch {
-        if (active) setState("offline");
+        if (active) {
+          setState("offline");
+          currentInterval = Math.min(currentInterval * 1.5, 60_000);
+        }
+      } finally {
+        if (active) {
+          timerId = setTimeout(() => void poll(), currentInterval);
+        }
       }
     };
 
     void poll();
-    timerId = setInterval(() => void poll(), POLL_MS);
 
     return () => {
       active = false;
-      if (timerId) clearInterval(timerId);
+      if (timerId) clearTimeout(timerId);
     };
   }, []);
 

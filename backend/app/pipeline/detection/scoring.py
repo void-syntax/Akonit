@@ -78,14 +78,13 @@ def compute_strength(
     *,
     cross_source_count: int = 1,
     window_minutes: int = 15,
+    ai_priority_score: float = 0.0,
 ) -> float:
     """Return strength in the 0..100 range.
 
-    Weighted sum of the six components (weights come from settings and
-    already sum to 100), multiplied by the staleness factor so a big flat
-    old object cannot outscore a small sharp one.
+    Weighted sum of components, combined with ai_priority_score boost and cross-source confirmation.
     """
-    total = (
+    base_total = (
         growth_score(metrics) * settings.weight_growth
         + velocity_score(metrics) * settings.weight_velocity
         + acceleration_score(metrics) * settings.weight_acceleration
@@ -94,7 +93,13 @@ def compute_strength(
         + persistence_score(metrics) * settings.weight_persistence
         + cross_source_score(cross_source_count) * settings.weight_cross_source
     )
-    total *= staleness_penalty(metrics, window_minutes)
+    base_total *= staleness_penalty(metrics, window_minutes)
+    
+    # Enhanced scoring combining base strength, AI priority score boost, and cross source count synergy
+    ai_boost = ai_priority_score * 15.0  # Up to 15 points boost from AI importance
+    cross_bonus = min(cross_source_count * 3.0, 15.0) # Up to 15 points cross-source synergy bonus
+    
+    total = base_total + ai_boost + cross_bonus
     return round(min(max(total, 0.0), 100.0), 2)
 
 
@@ -103,21 +108,33 @@ def strength_components(
     *,
     cross_source_count: int = 1,
     window_minutes: int = 15,
+    ai_priority_score: float = 0.0,
 ) -> dict[str, float]:
     """Breakdown for the signal detail page."""
+    base_growth = round(growth_score(metrics) * settings.weight_growth, 2)
+    base_velocity = round(velocity_score(metrics) * settings.weight_velocity, 2)
+    base_acceleration = round(
+        acceleration_score(metrics) * settings.weight_acceleration, 2
+    )
+    base_recency = round(recency_score(metrics, window_minutes) * settings.weight_recency, 2)
+    base_absolute = round(absolute_score(metrics) * settings.weight_absolute, 2)
+    base_persistence = round(
+        persistence_score(metrics) * settings.weight_persistence, 2
+    )
+    base_cross = round(
+        cross_source_score(cross_source_count) * settings.weight_cross_source, 2
+    )
+    ai_boost = round(ai_priority_score * 15.0, 2)
+    cross_bonus = round(min(cross_source_count * 3.0, 15.0), 2)
     return {
-        "growth": round(growth_score(metrics) * settings.weight_growth, 2),
-        "velocity": round(velocity_score(metrics) * settings.weight_velocity, 2),
-        "acceleration": round(
-            acceleration_score(metrics) * settings.weight_acceleration, 2
-        ),
-        "recency": round(recency_score(metrics, window_minutes) * settings.weight_recency, 2),
-        "absolute": round(absolute_score(metrics) * settings.weight_absolute, 2),
-        "persistence": round(
-            persistence_score(metrics) * settings.weight_persistence, 2
-        ),
-        "cross_source": round(
-            cross_source_score(cross_source_count) * settings.weight_cross_source, 2
-        ),
+        "growth": base_growth,
+        "velocity": base_velocity,
+        "acceleration": base_acceleration,
+        "recency": base_recency,
+        "absolute": base_absolute,
+        "persistence": base_persistence,
+        "cross_source": base_cross,
+        "ai_boost": ai_boost,
+        "cross_bonus": cross_bonus,
         "staleness_factor": round(staleness_penalty(metrics, window_minutes), 3),
     }

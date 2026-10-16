@@ -149,20 +149,20 @@ export function SignalCard({ signal, onChange, onDelete }: Props) {
         )}
 
         {signal.ai_priority === "critical" && (
-          <span className="ai-badge ai-badge--critical">
-            ⚡ Critical
+          <span className="ai-badge ai-badge--critical" title={`AI Confidence: ${Math.round((signal.ai_priority_score || 0) * 100)}%`}>
+            ⚡ Critical ({Math.round((signal.ai_priority_score || 0) * 100)}%)
           </span>
         )}
 
         {signal.ai_priority === "watch" && (
-          <span className="ai-badge ai-badge--watch">
-            👁 Watch
+          <span className="ai-badge ai-badge--watch" title={`AI Confidence: ${Math.round((signal.ai_priority_score || 0) * 100)}%`}>
+            👁 Watch ({Math.round((signal.ai_priority_score || 0) * 100)}%)
           </span>
         )}
 
         {signal.ai_priority === "noise" && (
-          <span className="ai-badge ai-badge--noise">
-            Noise
+          <span className="ai-badge ai-badge--noise" title={`Noise Probability: ${Math.round((signal.ai_noise_probability || 0) * 100)}%`}>
+            Noise ({Math.round((signal.ai_noise_probability || 0) * 100)}%)
           </span>
         )}
 
