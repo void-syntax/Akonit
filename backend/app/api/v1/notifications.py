@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.core.config import settings
-from app.models import NotificationDelivery, NotificationPreference, UserProfile
+from app.models import NotificationDelivery, NotificationPreference, Radar, UserProfile
 from app.models.enums import DeliveryStatus, NotificationChannel
 from app.schemas.api import ORMModel
 from datetime import datetime
@@ -65,7 +65,18 @@ async def upsert_preference(
     if not radar_id:
         raise HTTPException(status_code=400, detail="radar_id is required")
 
-    channel = NotificationChannel(payload.get("channel", "WEB_PUSH"))
+    try:
+        channel = NotificationChannel(payload.get("channel", "WEB_PUSH"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid channel")
+
+    radar = (
+        await session.execute(
+            select(Radar).where(Radar.id == radar_id, Radar.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    if radar is None:
+        raise HTTPException(status_code=404, detail="Radar not found")
     row = (
         await session.execute(
             select(NotificationPreference).where(
@@ -169,6 +180,13 @@ async def telegram_status(user: CurrentUser):
 
 @router.post("/telegram/link")
 async def link_telegram(chat_id: str, user: CurrentUser, session: SessionDep):
+    chat_id = chat_id.strip()
+    try:
+        int(chat_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="chat_id must be numeric")
+    if len(chat_id) < 1 or len(chat_id) > 20:
+        raise HTTPException(status_code=400, detail="chat_id length is invalid")
     profile = user.profile
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")

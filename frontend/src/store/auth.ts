@@ -19,17 +19,23 @@ interface AuthState {
  * available. Keeping a store here instead of hardcoding "signed in" means the
  * UI still degrades honestly if the API is unreachable.
  */
-export const useAuth = create<AuthState>((set) => ({
+export const useAuth = create<AuthState>((set, get) => ({
   email: null,
   loading: true,
   error: null,
 
   hydrate: async () => {
+    // Deduplicate concurrent hydrate calls: if already resolved, skip.
+    if (!get().loading && get().email !== null) return;
     try {
       const user = await api.me();
       set({ email: user.email, loading: false, error: null });
-    } catch {
-      set({ email: null, loading: false });
+    } catch (err) {
+      set({
+        email: null,
+        loading: false,
+        error: err instanceof Error ? err.message : "Could not resolve local account",
+      });
     }
   },
 }));

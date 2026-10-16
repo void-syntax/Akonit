@@ -29,7 +29,8 @@ async def list_countries(
 ):
     statement = select(Country)
     if q:
-        statement = statement.where(Country.name.ilike(f"%{q}%"))
+        escaped_q = q.replace("%", r"\%").replace("_", r"\_")
+        statement = statement.where(Country.name.ilike(f"%{escaped_q}%"))
     if supported_only:
         statement = statement.where(Country.is_supported.is_(True))
     return (
@@ -66,7 +67,8 @@ async def list_tags(
     if category:
         statement = statement.where(Tag.category == category)
     if q:
-        statement = statement.where(Tag.name.ilike(f"%{q}%"))
+        escaped_q = q.replace("%", r"\%").replace("_", r"\_")
+        statement = statement.where(Tag.name.ilike(f"%{escaped_q}%"))
     return (
         (await session.execute(statement.order_by(Tag.category, Tag.name)))
         .scalars()

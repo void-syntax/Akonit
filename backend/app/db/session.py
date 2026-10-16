@@ -29,7 +29,10 @@ def _build_engine(url: str) -> AsyncEngine:
             echo=echo,
             future=True,
             poolclass=StaticPool,
-            connect_args={"check_same_thread": False},
+            connect_args={
+                "check_same_thread": False,
+                "timeout": 30,
+            },
         )
     return create_async_engine(
         url,

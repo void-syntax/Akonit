@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, OptionalUser, SessionDep
 from app.models import (
     IgnoredSignal,
+    Radar,
     RadarSignal,
     SavedSignal,
     Signal,
@@ -127,12 +128,24 @@ async def list_signals(
         cutoff = datetime.now(UTC) - timedelta(minutes=max_age_minutes)
         statement = statement.where(Signal.first_seen_at >= cutoff)
     if keyword:
-        pattern = f"%{keyword.lower()}%"
+        escaped = keyword.replace("%", r"\%").replace("_", r"\_")
+        pattern = f"%{escaped.lower()}%"
         statement = statement.where(
             func.lower(Signal.title).like(pattern)
             | func.lower(Signal.description).like(pattern)
         )
     if radar_id:
+        if user is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        radar = (
+            await session.execute(
+                select(Radar).where(
+                    Radar.id == radar_id, Radar.user_id == user.id
+                )
+            )
+        ).scalar_one_or_none()
+        if radar is None:
+            raise HTTPException(status_code=404, detail="Radar not found")
         statement = statement.join(
             RadarSignal, RadarSignal.signal_id == Signal.id
         ).where(RadarSignal.radar_id == radar_id)
@@ -286,6 +299,7 @@ async def signal_history(
     hours: int = Query(default=168, le=720),
 ):
     """Chart data derived from the append-only snapshot table."""
+    await _get_signal(session, signal_id)
     since = datetime.now(UTC) - timedelta(hours=hours)
     rows = (
         (

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from sqlalchemy import Text, cast, func, or_, select
 
-from app.api.deps import SessionDep
+from app.api.deps import CurrentUser, SessionDep
 from app.core.config import settings
 from app.models import Signal, Source, SourceHealth
 from app.models.enums import SourceStatus, SignalStatus
@@ -125,6 +125,7 @@ async def discover(
 
     return {
         "total": total,
+        "page_count": len(rows),
         "items": [
             {
                 field: getattr(signal, field)
@@ -133,7 +134,6 @@ async def discover(
             }
             for signal in rows[:limit]
         ],
-        "total": len(rows),
     }
 
 
@@ -189,7 +189,7 @@ async def public_stats(session: SessionDep):
 
 
 @router.post("/system/collect")
-async def collect_now(session: SessionDep, countries: str | None = None):
+async def collect_now(session: SessionDep, _user: CurrentUser, countries: str | None = None):
     """Manual trigger kept for debugging; the worker runs on its own schedule."""
     from app.services.pipeline_service import run_collection_cycle
 

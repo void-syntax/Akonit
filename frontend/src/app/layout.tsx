@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 
 import { AppShell } from "@/components/AppShell";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
+import { ToastProvider } from "@/components/Toast";
 
 import "./globals.css";
 
@@ -28,7 +29,9 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <ServiceWorkerRegistrar />
-        <AppShell>{children}</AppShell>
+        <ToastProvider>
+          <AppShell>{children}</AppShell>
+        </ToastProvider>
       </body>
     </html>
   );

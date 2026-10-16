@@ -93,6 +93,15 @@ class HttpClient:
             except Exception as exc:  # network error
                 last_exc = exc
                 resp = None
+                if attempt >= retries:
+                    if raise_on_error:
+                        raise SourceUnavailable(
+                            f"failed after {retries + 1} attempts: {url} ({last_exc})"
+                        )
+                    return None
+                delay = backoff ** attempt + random.uniform(0, 0.6)
+                await asyncio.sleep(delay)
+                continue
 
             if resp is not None:
                 if resp.status_code == 429 or resp.status_code == 503:
@@ -123,7 +132,7 @@ class HttpClient:
             raise SourceUnavailable(
                 f"failed after {retries + 1} attempts: {url} ({last_exc})"
             )
-        raise SourceUnavailable(f"failed after retries: {url}")
+        return None
 
     async def get(self, url: str, **kw: Any) -> httpx.Response:
         return await self.request("GET", url, **kw)

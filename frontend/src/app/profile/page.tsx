@@ -86,7 +86,7 @@ export default function ProfilePage() {
 
   if (!email) {
     return (
-      <div className="empty">
+      <div className="empty" role="status" aria-live="polite">
         <div className="empty-title">Cannot reach the local API</div>
         <p className="empty-text">
           Custom tags, radars and notifications live in your local database.
@@ -110,7 +110,7 @@ export default function ProfilePage() {
         </button>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <div className="alert alert-error" role="alert" aria-live="assertive">{error}</div>}
 
       <TagList tags={tags} onEdit={startEdit} onDelete={remove} />
 

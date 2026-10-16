@@ -160,7 +160,7 @@ export default function SettingsPage() {
 
   if (!email) {
     return (
-      <div className="empty">
+      <div className="empty" role="status" aria-live="polite">
         <div className="empty-title">Cannot reach the local API</div>
         <p className="empty-text">
           Notification channels, quiet hours and defaults are stored in your
@@ -177,7 +177,7 @@ export default function SettingsPage() {
   if (!profile) {
     return (
       <>
-        {error && <div className="alert alert-error">{error}</div>}
+        {error && <div className="alert alert-error" role="alert" aria-live="assertive">{error}</div>}
         <p className="muted">Loading settings…</p>
       </>
     );
@@ -421,7 +421,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <div className="alert alert-error" role="alert" aria-live="assertive">{error}</div>}
     </>
   );
 }

@@ -34,24 +34,30 @@ export default function DiscoverPage() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
     void (async () => {
-      setLoading(true);
-      setError(null);
       try {
-        const result = await api.discover({
-          limit: 40,
-          country: country.length ? country : undefined,
-          source: source.length ? source : undefined,
-          min_strength: minStrength > 0 ? minStrength : undefined,
-        });
+        const result = await api.discover(
+          {
+            limit: 40,
+            country: country.length ? country : undefined,
+            source: source.length ? source : undefined,
+            min_strength: minStrength > 0 ? minStrength : undefined,
+          },
+          { signal: controller.signal },
+        );
         setSignals(result.items);
       } catch (err) {
+        if ((err as { name?: string }).name === "AbortError") return;
         setSignals([]);
         setError(err instanceof Error ? err.message : "Could not load discovery");
       } finally {
         setLoading(false);
       }
     })();
+    return () => controller.abort();
   }, [country, source, minStrength]);
 
   return (
@@ -108,7 +114,7 @@ export default function DiscoverPage() {
         )}
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <div className="alert alert-error" role="alert" aria-live="assertive">{error}</div>}
 
       {loading && signals.length === 0 && (
         <>
@@ -119,7 +125,7 @@ export default function DiscoverPage() {
       )}
 
       {!loading && signals.length === 0 && (
-        <div className="empty">
+        <div className="empty" role="status" aria-live="polite">
           <div className="empty-title">Nothing is rising yet</div>
           <p className="empty-text">
             Discovery shows only NEW, RISING and BREAKOUT signals. Check back

@@ -82,6 +82,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await get_redis()
     logger.info("Signal Radar API ready (%s sources)", len(_sources()))
+
+    # Start background tasks: Telegram bot & Laya AI warm-up
+    import asyncio
+    from app.bot.telegram_bot import start_bot
+    from app.ai.laya_classifier import warm_up as laya_warm_up
+
+    asyncio.create_task(start_bot())
+    asyncio.create_task(laya_warm_up())
+
     yield
     await close_redis()
     await db_session.engine.dispose()
@@ -99,6 +108,14 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+@app.get("/health")
+async def root_health():
+    return {"status": "ok", "service": "Signal Radar API"}
+
+@app.get("/")
+async def root():
+    return {"name": "Signal Radar API", "docs": "/docs", "health": "/health"}
 
 app.add_middleware(
     CORSMiddleware,

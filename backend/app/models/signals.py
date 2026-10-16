@@ -63,6 +63,19 @@ class Signal(Base):
     age_minutes: Mapped[float] = mapped_column(Float, default=0.0)
     activity_metric: Mapped[str | None] = mapped_column(String(40))
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # --- Laya AI classification ---
+    ai_priority: Mapped[str | None] = mapped_column(String(20))
+    """'critical' | 'watch' | 'noise' — Laya's System-1 priority judgment."""
+    ai_priority_score: Mapped[float] = mapped_column(Float, default=0.0)
+    ai_category: Mapped[str | None] = mapped_column(String(40))
+    """Topic category assigned by Laya: tech, social, finance, culture, etc."""
+    ai_should_notify: Mapped[float] = mapped_column(Float, default=0.0)
+    """0–1 probability that this signal deserves an immediate notification."""
+    ai_noise_probability: Mapped[float] = mapped_column(Float, default=0.0)
+    """0–1 probability that this is noise/spam."""
+    ai_trending_score: Mapped[float] = mapped_column(Float, default=0.0)
+    ai_classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     topics: Mapped[list] = mapped_column(JSON, default=list)
     keywords: Mapped[list] = mapped_column(JSON, default=list)
 

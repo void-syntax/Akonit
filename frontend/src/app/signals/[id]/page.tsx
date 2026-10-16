@@ -45,6 +45,7 @@ export default function SignalPage() {
   const [saved, setSaved] = useState(false);
   const [muted, setMuted] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -67,6 +68,7 @@ export default function SignalPage() {
   async function toggleSave() {
     if (!signal) return;
     setBusy(true);
+    setActionError(null);
     try {
       if (saved) {
         await api.unsave(signal.id);
@@ -75,6 +77,8 @@ export default function SignalPage() {
         await api.save(signal.id);
         setSaved(true);
       }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not update save state");
     } finally {
       setBusy(false);
     }
@@ -83,6 +87,7 @@ export default function SignalPage() {
   async function toggleMute() {
     if (!signal) return;
     setBusy(true);
+    setActionError(null);
     try {
       if (muted) {
         await api.unmute(signal.id);
@@ -91,6 +96,8 @@ export default function SignalPage() {
         await api.mute(signal.id);
         setMuted(true);
       }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not update mute state");
     } finally {
       setBusy(false);
     }
@@ -98,7 +105,7 @@ export default function SignalPage() {
 
   if (error && !signal) {
     return (
-      <div className="empty">
+      <div className="empty" role="status" aria-live="polite">
         <div className="empty-title">Signal unavailable</div>
         <p className="empty-text">{error}</p>
         <Link className="btn" href="/">
@@ -231,6 +238,12 @@ export default function SignalPage() {
           >
             <PauseIcon size={14} /> {muted ? "Hidden" : "Mute"}
           </button>
+
+        {actionError && (
+          <p className="text-xs" style={{ color: "var(--danger)", marginTop: 8 }} role="alert" aria-live="assertive">
+            {actionError}
+          </p>
+        )}
         </div>
       </div>
 
@@ -245,8 +258,8 @@ export default function SignalPage() {
 
         {signal.snapshots.length > 0 && (
           <div className="metric-grid" style={{ marginTop: "var(--s4)" }}>
-            {signal.snapshots.slice(-4).reverse().map((s) => (
-              <div className="metric" key={s.captured_at}>
+            {signal.snapshots.slice(-4).reverse().map((s, idx) => (
+              <div className="metric" key={`${s.captured_at}-${idx}`}>
                 <div className="metric-label">{timeAgo(s.captured_at)}</div>
                 <div className="metric-value mono">
                   {formatActivity(s.activity, signal.activity_metric)}

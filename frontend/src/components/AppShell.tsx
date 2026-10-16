@@ -17,6 +17,7 @@ import {
 import { api } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 import type { LiveState } from "@/lib/useLiveFeed";
+import { StatusBar } from "@/components/StatusBar";
 
 const NAV = [
   { href: "/", label: "Signals", Icon: CompassIcon },
@@ -98,6 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href={item.href}
                 className="mainnav-item"
                 data-active={isActive(pathname, item.href)}
+                aria-current={isActive(pathname, item.href) ? "page" : undefined}
               >
                 <item.Icon size={16} />
                 {item.label}
@@ -107,13 +109,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="spacer" />
 
-          <span className="live" data-state={live}>
+          <span className="live" data-state={live} aria-live="polite">
             <span className="live-dot" />
             {live === "live" ? "LIVE" : live.toUpperCase()}
           </span>
 
           {breakout > 0 && (
-            <Link href="/?tab=breakout" className="topbar-count" title="Signals breaking out right now">
+            <Link href="/?tab=breakout" className="topbar-count" title="Signals breaking out right now" aria-live="polite">
+              <span className="topbar-breakout-dot" />
               <FireIcon size={13} />
               {breakout}
             </Link>
@@ -147,12 +150,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             href={item.href}
             className="tabbar-item"
             data-active={isActive(pathname, item.href)}
+            aria-current={isActive(pathname, item.href) ? "page" : undefined}
           >
             <item.Icon size={21} />
             <span>{item.label}</span>
           </Link>
         ))}
       </nav>
+
+      <StatusBar />
     </div>
   );
 }
