@@ -814,7 +814,7 @@ select.filter {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  z-index: 40;
+  z-index: 1000;
   min-width: 220px;
   max-width: 320px;
   max-height: 320px;
