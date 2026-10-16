@@ -17,8 +17,12 @@ export default function RadarDetailPage() {
   const [summary, setSummary] = useState<RadarSummary | null>(null);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  // Separate busy states so buttons don't confusingly disable each other.
+  const [runBusy, setRunBusy] = useState(false);
+  const [toggleBusy, setToggleBusy] = useState(false);
+  const [removeBusy, setRemoveBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runSuccess, setRunSuccess] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -45,36 +49,49 @@ export default function RadarDetailPage() {
   }, [params.id]);
 
   async function runNow() {
-    setBusy(true);
+    setRunBusy(true);
+    setError(null);
     try {
       await api.runRadar(params.id);
-      await load();
+      try {
+        await load();
+      } catch (loadErr) {
+        setError(loadErr instanceof Error ? loadErr.message : "Reload failed after run");
+      }
+      setRunSuccess(true);
+      setTimeout(() => setRunSuccess(false), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Run failed");
     } finally {
-      setBusy(false);
+      setRunBusy(false);
     }
   }
 
   async function toggleActive() {
     if (!radar) return;
-    setBusy(true);
+    setToggleBusy(true);
+    setError(null);
     try {
       setRadar(await api.updateRadar(radar.id, { is_active: !radar.is_active }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not toggle radar");
     } finally {
-      setBusy(false);
+      setToggleBusy(false);
     }
   }
 
   async function remove() {
     if (!radar) return;
     if (!window.confirm(`Delete radar "${radar.name}"?`)) return;
-    setBusy(true);
+    setRemoveBusy(true);
+    setError(null);
     try {
       await api.deleteRadar(radar.id);
       router.push("/radars");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete radar");
     } finally {
-      setBusy(false);
+      setRemoveBusy(false);
     }
   }
 
@@ -82,7 +99,7 @@ export default function RadarDetailPage() {
 
   if (error && !radar) {
     return (
-      <div className="empty">
+      <div className="empty" role="status" aria-live="polite">
         <div className="empty-title">Radar unavailable</div>
         <p className="empty-text">{error}</p>
         <Link className="btn" href="/radars">
@@ -104,19 +121,19 @@ export default function RadarDetailPage() {
         <Link className="btn btn-sm" href={`/radars/${radar.id}/edit`}>
           <EditIcon size={14} /> Edit
         </Link>
-        <button className="btn btn-sm" onClick={toggleActive} disabled={busy}>
-          {radar.is_active ? "Pause" : "Resume"}
+        <button className="btn btn-sm" onClick={toggleActive} disabled={toggleBusy}>
+          {toggleBusy ? "Saving…" : radar.is_active ? "Pause" : "Resume"}
         </button>
-        <button className="btn btn-sm" onClick={runNow} disabled={busy}>
-          {busy ? "Running…" : "Run now"}
+        <button className="btn btn-sm" onClick={runNow} disabled={runBusy}>
+          {runBusy ? "Running…" : runSuccess ? "Done ✓" : "Run now"}
         </button>
         <button
           className="btn btn-sm btn-danger"
           onClick={remove}
-          disabled={busy}
+          disabled={removeBusy}
           aria-label="Delete radar"
         >
-          <TrashIcon size={14} />
+          {removeBusy ? "…" : <TrashIcon size={14} />}
         </button>
       </div>
 
@@ -164,10 +181,14 @@ export default function RadarDetailPage() {
         <span className="dim text-xs">{signals.length} shown</span>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && (
+        <div className="alert alert-error" role="alert" aria-live="assertive">
+          {error}
+        </div>
+      )}
 
       {signals.length === 0 ? (
-        <div className="empty">
+        <div className="empty" role="status" aria-live="polite">
           <div className="empty-title">No matches yet</div>
           <p className="empty-text">
             The worker checks new signals against this radar every 5 minutes.

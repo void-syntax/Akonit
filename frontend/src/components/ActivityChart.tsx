@@ -38,6 +38,9 @@ export function ActivityChart({ points }: { points: Point[] }) {
     .join(" ");
   const area = `${line} ${width},${height} 0,${height}`;
   const peak = Math.max(...points.map((p) => p.activity));
+  const first = points[0];
+  const last = points[points.length - 1];
+  const summary = `Activity history across ${points.length} snapshots: from ${first.activity} at ${first.t} to ${last.activity} now; peak ${peak}.`;
 
   return (
     <div>
@@ -46,7 +49,10 @@ export function ActivityChart({ points }: { points: Point[] }) {
         className="chart"
         role="img"
         aria-label="Activity history"
+        aria-describedby="activity-chart-summary"
       >
+        <title>Activity history</title>
+        <desc id="activity-chart-summary">{summary}</desc>
         <polygon points={area} className="chart-area" />
         <polyline points={line} className="chart-line" />
         {coords.map((c, index) => (

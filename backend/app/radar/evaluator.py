@@ -33,8 +33,11 @@ class SignalLike(Protocol):
     source_id: str
     source_url: str
     growth: float
+    velocity: float
     current_activity: float
     strength: float
+    cross_source_count: int
+    density_count: int
     status: str
     first_seen_at: datetime
     tag_slugs: set[str]
@@ -119,6 +122,55 @@ def evaluate(condition: Condition, signal: SignalLike) -> bool:
             return current not in candidates
         return current in candidates
 
+    # --- Advanced condition types ---
+
+    if condition.type == ConditionType.VELOCITY:
+        # Smoothed rate of change — more stable than raw growth.
+        velocity = getattr(signal, "velocity", 0.0) or 0.0
+        return _compare_numeric(velocity, value, op)
+
+    if condition.type == ConditionType.CROSS_SOURCE:
+        # Number of independent platforms confirming this signal.
+        count = getattr(signal, "cross_source_count", 1) or 1
+        return _compare_numeric(float(count), value, op)
+
+    if condition.type == ConditionType.PERSISTENCE:
+        # Consecutive collection windows with positive growth.
+        # The protocol doesn't store this directly, but snapshots do.
+        # For the evaluator we use a simple heuristic: age / window * growth.
+        age = age_in_minutes(signal.first_seen_at)
+        growth = signal.growth
+        persistence = min(age / 60, 168)  # cap at 1 week in hours
+        if growth > 0:
+            persistence = persistence * min(growth / 10, 10)
+        return _compare_numeric(persistence, value, op)
+
+    if condition.type == ConditionType.DENSITY:
+        # How many signals share the same tag in the recent window.
+        density = getattr(signal, "density_count", 1) or 1
+        return _compare_numeric(float(density), value, op)
+
+    if condition.type == ConditionType.TEXT:
+        # Fuzzy text search over title and description.
+        haystack = f"{signal.title} {signal.description}".lower()
+        needle = str(value).lower()
+        if not needle:
+            return True
+        if op == ConditionOperator.MATCHES:
+            # Use substring ratio — if rapidfuzz is available use it,
+            # otherwise fall back to simple containment.
+            try:
+                from rapidfuzz import fuzz  # type: ignore[import-untyped]
+
+                score = fuzz.partial_ratio(needle, haystack)
+                return score >= 70
+            except ImportError:
+                return needle in haystack
+        if op == ConditionOperator.NOT_IN:
+            return needle not in haystack
+        return needle in haystack
+
+    # Unknown type: pass through rather than blocking the radar.
     return True
 
 

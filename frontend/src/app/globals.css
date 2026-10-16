@@ -9,50 +9,50 @@
   color-scheme: dark;
 
   /* --- elevation surfaces --- */
-  --surface-base: #080a10;
-  --surface-1: #0e111a;
-  --surface-2: #131824;
-  --surface-3: #1a2030;
-  --surface-hover: #1d2434;
+  --surface-base: #0a0a0f;
+  --surface-1: #111118;
+  --surface-2: #1a1a24;
+  --surface-3: #1a1a24;
+  --surface-hover: #22222e;
 
   /* --- structure --- */
-  --line: #1e2536;
-  --line-strong: #2b3448;
-  --line-accent: #34405c;
+  --line: #2a2a3a;
+  --line-strong: #3a3a50;
+  --line-accent: #4a4a64;
 
   /* --- text --- */
-  --text-1: #eef1f8;
-  --text-2: #a8b2c6;
-  --text-3: #6b7689;
-  --text-inverse: #06080d;
+  --text-1: #f1f5f9;
+  --text-2: #94a3b8;
+  --text-3: #64748b;
+  --text-inverse: #0a0a0f;
 
   /* --- brand --- */
-  --brand: #5b8cff;
-  --brand-strong: #7aa2ff;
-  --brand-soft: rgba(91, 140, 255, 0.13);
-  --brand-line: rgba(91, 140, 255, 0.38);
+  --brand: #6366f1;
+  --brand-strong: #818cf8;
+  --brand-soft: rgba(99, 102, 241, 0.13);
+  --brand-line: rgba(99, 102, 241, 0.38);
 
   /* --- status (colour is always paired with an icon + text) --- */
-  --st-new: #35c9f0;
-  --st-new-bg: rgba(53, 201, 240, 0.11);
-  --st-new-line: rgba(53, 201, 240, 0.3);
+  --st-new: #6366f1;
+  --st-new-bg: rgba(99, 102, 241, 0.11);
+  --st-new-line: rgba(99, 102, 241, 0.3);
 
-  --st-rising: #a98bff;
-  --st-rising-bg: rgba(169, 139, 255, 0.12);
-  --st-rising-line: rgba(169, 139, 255, 0.32);
+  --st-rising: #f59e0b;
+  --st-rising-bg: rgba(245, 158, 11, 0.12);
+  --st-rising-line: rgba(245, 158, 11, 0.32);
 
-  --st-breakout: #ff4d63;
-  --st-breakout-bg: rgba(255, 77, 99, 0.13);
-  --st-breakout-line: rgba(255, 77, 99, 0.38);
+  --st-breakout: #ef4444;
+  --st-breakout-bg: rgba(239, 68, 68, 0.13);
+  --st-breakout-line: rgba(239, 68, 68, 0.38);
 
-  --st-fading: #7a869c;
-  --st-fading-bg: rgba(122, 134, 156, 0.12);
-  --st-fading-line: rgba(122, 134, 156, 0.28);
+  --st-fading: #64748b;
+  --st-fading-bg: rgba(100, 116, 139, 0.12);
+  --st-fading-line: rgba(100, 116, 139, 0.28);
 
-  --ok: #2fd07a;
-  --ok-bg: rgba(47, 208, 122, 0.12);
-  --warn: #f5b544;
-  --danger: #ff4d63;
+  --ok: #22c55e;
+  --ok-bg: rgba(34, 197, 94, 0.12);
+  --warn: #f59e0b;
+  --danger: #ef4444;
 
   /* --- spacing scale --- */
   --s1: 4px;
@@ -164,8 +164,8 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(1100px 560px at 82% -12%, rgba(91, 140, 255, 0.07), transparent 62%),
-    radial-gradient(900px 500px at -5% 8%, rgba(169, 139, 255, 0.045), transparent 58%);
+    radial-gradient(1100px 560px at 82% -12%, rgba(99, 102, 241, 0.06), transparent 62%),
+    radial-gradient(900px 500px at -5% 8%, rgba(129, 140, 248, 0.04), transparent 58%);
 }
 
 .container {
@@ -190,8 +190,12 @@ input:focus, select:focus, textarea:focus {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: color-mix(in srgb, var(--surface-base) 88%, transparent);
-  backdrop-filter: blur(16px) saturate(140%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-base) 92%, transparent),
+    color-mix(in srgb, var(--surface-base) 85%, transparent)
+  );
+  backdrop-filter: blur(20px) saturate(160%);
   border-bottom: 1px solid var(--line);
 }
 
@@ -286,7 +290,7 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--line);
   border-radius: var(--r-xl);
   background:
-    linear-gradient(180deg, rgba(91, 140, 255, 0.09), transparent 55%),
+    linear-gradient(180deg, rgba(99, 102, 241, 0.08), transparent 55%),
     var(--surface-1);
   padding: var(--s7) var(--s5);
   margin-bottom: var(--s5);
@@ -315,7 +319,7 @@ input:focus, select:focus, textarea:focus {
 
 .hero-title em {
   font-style: normal;
-  background: linear-gradient(100deg, var(--brand), #a98bff);
+  background: linear-gradient(100deg, var(--brand), #818cf8);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -403,7 +407,8 @@ input:focus, select:focus, textarea:focus {
    surface + card
    ========================================================================== */
 .card {
-  background: var(--surface-1);
+  background: rgba(17, 17, 24, 0.95);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   padding: var(--s4);
@@ -469,12 +474,13 @@ input:focus, select:focus, textarea:focus {
   gap: 5px;
   font-size: var(--t-11);
   font-weight: 800;
-  letter-spacing: 0.05em;
-  padding: 4px 9px;
-  border-radius: var(--r-sm);
+  letter-spacing: 0.07em;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
   border: 1px solid transparent;
   white-space: nowrap;
   line-height: 1.4;
+  text-transform: uppercase;
 }
 
 .badge svg { flex: none; }
@@ -611,15 +617,15 @@ input:focus, select:focus, textarea:focus {
 }
 
 .btn-primary {
-  background: var(--brand);
-  border-color: var(--brand);
+  background: linear-gradient(135deg, #6366f1, #818cf8);
+  border-color: rgba(99, 102, 241, 0.5);
   color: #fff;
 }
 
 @media (hover: hover) {
   .btn-primary:hover {
-    background: var(--brand-strong);
-    border-color: var(--brand-strong);
+    background: linear-gradient(135deg, #818cf8, #a5b4fc);
+    border-color: rgba(129, 140, 248, 0.6);
   }
 }
 
@@ -730,10 +736,17 @@ input:focus, select:focus, textarea:focus {
   overflow-x: auto;
   padding-bottom: var(--s3);
   margin-bottom: var(--s4);
-  scrollbar-width: none;
+  scrollbar-width: thin;
 }
 
-.filters::-webkit-scrollbar { display: none; }
+.filters::-webkit-scrollbar {
+  height: 6px;
+}
+
+.filters::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: var(--r-full, 999px);
+}
 
 .filter {
   /* A <select> with flex:none sizes itself to its widest option, which stretched
@@ -920,10 +933,38 @@ select.filter {
 /* --- signal card --------------------------------------------------------- */
 .signal-card {
   transition: border-color var(--e-fast), transform var(--e-fast);
+  border-left: 3px solid transparent;
 }
 
 .signal-card[data-status="BREAKOUT"] {
-  border-color: var(--brand-line);
+  border-left-color: var(--st-breakout);
+  animation: card-in var(--e-slow) both, breakout-pulse 2.5s ease-in-out infinite;
+}
+
+.signal-card[data-status="RISING"] {
+  border-left-color: var(--st-rising);
+}
+
+.signal-card[data-status="NEW"] {
+  border-left-color: var(--st-new);
+}
+
+.signal-card[data-status="FADING"] {
+  border-left-color: var(--st-fading);
+}
+
+@keyframes breakout-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.15); }
+}
+
+.signal-card--noise {
+  opacity: 0.7;
+}
+
+.signal-card--critical {
+  border-left-color: var(--st-breakout) !important;
+  animation: card-in var(--e-slow) both, breakout-pulse 2.5s ease-in-out infinite;
 }
 
 .signal-card:hover {
@@ -976,11 +1017,11 @@ select.filter {
 }
 
 .section-title {
-  font-size: var(--t-11);
+  font-size: var(--t-13);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: var(--text-2);
   margin: var(--s5) 0 var(--s3);
   display: flex;
   align-items: center;
@@ -992,7 +1033,7 @@ select.filter {
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--line);
+  background: linear-gradient(90deg, var(--brand-line), transparent);
   min-width: 20px;
 }
 
@@ -1219,8 +1260,29 @@ select.filter {
     display: none;
   }
 
+  .filters {
+    /* On mobile the filter bar wraps naturally; we keep scrollability via the
+       outer scroll hint (a fade gradient) rather than forcing wrap, which can
+       push cards off-screen. Scroll is fine because FilterSelect uses JS toggle. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    /* Fade hint at the trailing edge so users know it scrolls. */
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+    mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+    padding-right: 32px; /* room for the fade */
+  }
+
   .filter {
     min-height: 40px;
+  }
+
+  /* Cards must stay readable at 320 px – the narrowest iPhone. */
+  .card,
+  .signal-card {
+    min-width: 0;
+    /* Ensure text inside never forces the card wider than the viewport. */
+    overflow-wrap: break-word;
+    word-break: break-word;
   }
 
   .condition select,
@@ -1330,9 +1392,10 @@ select.filter {
 }
 
 .metric-value {
-  font-size: var(--t-17);
-  font-weight: 700;
-  letter-spacing: -0.015em;
+  font-size: var(--t-21);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
 .strength {
@@ -1360,8 +1423,8 @@ select.filter {
 }
 
 .strength-fill[data-tone="low"] { background: var(--text-3); }
-.strength-fill[data-tone="mid"] { background: var(--st-rising); }
-.strength-fill[data-tone="high"] { background: var(--st-breakout); }
+.strength-fill[data-tone="mid"] { background: linear-gradient(90deg, var(--st-rising), #fbbf24); }
+.strength-fill[data-tone="high"] { background: linear-gradient(90deg, var(--st-breakout), #f97316); }
 
 /* ==========================================================================
    states
@@ -1400,11 +1463,142 @@ select.filter {
   border-radius: var(--r-md);
   height: 148px;
   margin-bottom: var(--s3);
+  border: 1px solid var(--line);
 }
 
 @keyframes shimmer {
   from { background-position: 200% 0; }
   to { background-position: -200% 0; }
+}
+
+/* ==========================================================================
+   toast notifications
+   ========================================================================== */
+.toast-stack {
+  position: fixed;
+  bottom: calc(var(--nav-h) + var(--s3));
+  right: var(--s4);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  max-width: 360px;
+  width: calc(100vw - var(--s5));
+  pointer-events: none;
+}
+
+@media (min-width: 768px) {
+  .toast-stack {
+    bottom: var(--s5);
+  }
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  padding: var(--s3) var(--s3);
+  border-radius: var(--r-md);
+  border: 1px solid;
+  font-size: var(--t-13);
+  line-height: 1.4;
+  pointer-events: auto;
+  animation: toast-in var(--e-slow) both;
+  box-shadow: var(--shadow-lg);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+.toast-success {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: rgba(47, 208, 122, 0.35);
+}
+
+.toast-error {
+  color: var(--danger);
+  background: rgba(255, 77, 99, 0.1);
+  border-color: rgba(255, 77, 99, 0.4);
+}
+
+.toast-info {
+  color: var(--text-1);
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+
+.toast-icon {
+  flex: none;
+  font-size: var(--t-13);
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.toast-message {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.toast-close {
+  flex: none;
+  font-size: 18px;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.6;
+  padding: 0 2px;
+  transition: opacity var(--e-fast);
+}
+
+.toast-close:hover { opacity: 1; }
+
+/* ==========================================================================
+   error card (prominent feed-level error with retry)
+   ========================================================================== */
+.error-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: var(--s4);
+  border-radius: var(--r-lg);
+  border: 1px solid rgba(255, 77, 99, 0.4);
+  background: rgba(255, 77, 99, 0.07);
+  margin-bottom: var(--s3);
+  flex-wrap: wrap;
+}
+
+.error-card-icon {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--danger);
+  flex: none;
+}
+
+.error-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.error-card-title {
+  font-size: var(--t-15);
+  font-weight: 700;
+  color: var(--danger);
+  margin-bottom: 4px;
+}
+
+.error-card-msg {
+  font-size: var(--t-13);
+  color: var(--text-2);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.error-card-retry {
+  flex: none;
+  align-self: center;
 }
 
 .alert {
@@ -1739,6 +1933,113 @@ select.filter {
   .grid-2 { grid-template-columns: 1fr; }
   .radar-grid { grid-template-columns: 1fr; }
   .brand-sub { display: none; }
+}
+
+/* ==========================================================================
+   AI classification badges (Laya)
+   ========================================================================== */
+.ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  text-transform: uppercase;
+  line-height: 1.5;
+}
+
+.ai-badge--category {
+  color: var(--brand-strong);
+  background: var(--brand-soft);
+  border: 1px solid var(--brand-line);
+}
+
+.ai-badge--critical {
+  color: var(--st-breakout);
+  background: var(--st-breakout-bg);
+  border: 1px solid var(--st-breakout-line);
+}
+
+.ai-badge--watch {
+  color: var(--st-rising);
+  background: var(--st-rising-bg);
+  border: 1px solid var(--st-rising-line);
+}
+
+.ai-badge--noise {
+  color: var(--text-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+/* ==========================================================================
+   status bar — desktop only
+   ========================================================================== */
+.statusbar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  height: 28px;
+  background: color-mix(in srgb, var(--surface-base) 95%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+  padding: 0 var(--s4);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  align-items: center;
+  gap: var(--s4);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 768px) {
+  .statusbar { display: flex; }
+}
+
+.statusbar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: pulse 2s ease-in-out infinite;
+  flex: none;
+}
+
+.statusbar-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.statusbar-version {
+  color: var(--text-3);
+}
+
+.statusbar-time {
+  margin-left: auto;
+  color: var(--text-2);
+  letter-spacing: 0.03em;
+}
+
+/* ==========================================================================
+   topbar breakout indicator
+   ========================================================================== */
+.topbar-breakout-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--st-breakout);
+  animation: pulse 2s ease-in-out infinite;
+  flex: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

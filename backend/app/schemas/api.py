@@ -138,6 +138,13 @@ class SignalOut(ORMModel):
     age_minutes: float
     activity_metric: str | None
     keywords: list[str]
+    ai_priority: str | None = None
+    ai_priority_score: float = 0.0
+    ai_category: str | None = None
+    ai_should_notify: float = 0.0
+    ai_noise_probability: float = 0.0
+    ai_trending_score: float = 0.0
+    ai_classified_at: datetime | None = None
     is_saved: bool = False
     is_ignored: bool = False
 

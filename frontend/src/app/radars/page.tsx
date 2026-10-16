@@ -46,7 +46,7 @@ export default function RadarsPage() {
 
   if (!email) {
     return (
-      <div className="empty">
+      <div className="empty" role="status" aria-live="polite">
         <div className="empty-title">Cannot reach the local API</div>
         <p className="empty-text">
           Radars need the collector running. Start it with{" "}
@@ -64,13 +64,13 @@ export default function RadarsPage() {
       <div className="section-title">
         My radars
         <div className="spacer" />
-        <span className="dim text-xs">{radars.length} configured</span>
+        <span className="dim text-xs">{loading ? "" : `${radars.length} configured`}</span>
       </div>
 
       {loading && <p className="muted">Loading radars…</p>}
 
       {!loading && radars.length === 0 && (
-        <div className="empty">
+        <div className="empty" role="status" aria-live="polite">
           <div className="empty-title">No radars yet</div>
           <p className="empty-text">
             Create your first radar: pick countries, sources, tags and a growth

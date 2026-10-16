@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { FilterSelect } from "@/components/FilterSelect";
 import { IntroHero } from "@/components/IntroHero";
 import { SignalCard, SignalCardSkeleton } from "@/components/SignalCard";
+import { SkeletonList } from "@/components/SkeletonList";
 import { api, type FeedQuery } from "@/lib/api";
 import { countryName, sourceName } from "@/lib/format";
 import type {
@@ -48,7 +49,7 @@ export default function FeedPage() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
@@ -60,14 +61,16 @@ export default function FeedPage() {
       if (search.trim()) query.keyword = search.trim();
       if (minStrength > 0) query.min_strength = minStrength;
 
-      const page = await api.signals(query);
+      const page = await api.signals(query, signal ? { signal } : undefined);
+      if (signal?.aborted) return;
       setSignals(page.items);
       setTotal(page.total);
     } catch (err) {
+      if (signal?.aborted) return;
       setSignals([]);
       setError(err instanceof Error ? err.message : "Could not load signals");
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [
     tab,
@@ -80,7 +83,9 @@ export default function FeedPage() {
   ]);
 
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
   useEffect(() => {
@@ -156,12 +161,6 @@ export default function FeedPage() {
       minStrength > 0,
   );
 
-  const sourceOptions = useMemo(() => {
-    const seen = new Set<string>();
-    signals.forEach((s) => seen.add(s.source_id));
-    return [...seen];
-  }, [signals]);
-
   return (
     <>
       <IntroHero stats={stats} firstRun={radars.length === 0} />
@@ -174,7 +173,12 @@ export default function FeedPage() {
             {liveState === "live" ? "LIVE" : liveState.toUpperCase()}
           </span>
           <div className="spacer" />
-          <span className="dim text-xs">{total} found</span>
+          {hasFilters && !loading && !error && signals.length > 0 && (
+            <span className="dim text-xs">{signals.length} result{signals.length !== 1 ? "s" : ""}</span>
+          )}
+          {(!hasFilters || loading || error || signals.length === 0) && (
+            <span className="dim text-xs">{total} found</span>
+          )}
         </div>
 
         <div className="tabs">
@@ -287,25 +291,39 @@ export default function FeedPage() {
           </div>
         )}
 
-        {error && <div className="alert alert-error">{error}</div>}
-
-        {loading && signals.length === 0 && (
-          <>
-            <SignalCardSkeleton />
-            <SignalCardSkeleton />
-            <SignalCardSkeleton />
-          </>
+        {error && (
+          <div className="error-card" role="alert" aria-live="assertive">
+            <div className="error-card-icon" aria-hidden="true">⚠</div>
+            <div className="error-card-body">
+              <div className="error-card-title">Could not load signals</div>
+              <p className="error-card-msg">{error}</p>
+            </div>
+            <button
+              className="btn btn-sm btn-primary error-card-retry"
+              onClick={() => void load()}
+            >
+              Retry
+            </button>
+          </div>
         )}
 
-        {!loading && signals.length === 0 && (
-          <div className="empty">
+        {loading && signals.length === 0 && <SkeletonList count={3} />}
+
+        {!loading && !error && signals.length === 0 && (
+          <div className="empty" role="status" aria-live="polite">
             <div className="empty-title">
-              {hasFilters ? "No signals match these filters" : "No signals yet"}
+              {search.trim()
+                ? `No results for "${search.trim()}"`
+                : hasFilters
+                  ? "No signals match these filters"
+                  : "No signals yet"}
             </div>
             <p className="empty-text">
-              {hasFilters
-                ? "Try removing a filter, or widen the country and tag selection."
-                : "The collector runs every minute. It needs a moment to fetch the first cycle."}
+              {search.trim()
+                ? "Try a different keyword, or clear the search to browse all signals."
+                : hasFilters
+                  ? "Try removing a filter, or widen the country and tag selection."
+                  : "The collector runs every minute. It needs a moment to fetch the first cycle."}
             </p>
             {hasFilters ? (
               <button

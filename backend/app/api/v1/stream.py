@@ -15,7 +15,6 @@ from app.core.config import settings
 from app.db.redis_bus import publish, subscribe, unsubscribe
 from app.models import Signal
 from app.models.enums import SignalStatus
-from sqlalchemy.orm import selectinload
 
 router = APIRouter(tags=["stream"])
 
@@ -41,24 +40,30 @@ def serialize(signal: Signal) -> dict:
 async def stream_feed(request: Request, session: SessionDep):
     """Server-sent events so the UI updates without a refresh."""
 
+    # Fetch the initial batch while we still hold the DB session, then
+    # release it before entering the long-lived streaming loop so we do
+    # not pin a connection for the lifetime of the SSE connection.
+    latest = (
+        (
+            await session.execute(
+                select(Signal)
+                .where(Signal.status != SignalStatus.FADING)
+                .order_by(Signal.first_seen_at.desc())
+                .limit(5)
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    initial_payload = [serialize(s) for s in latest]
+    # Release DB resources now — the streaming loop needs no DB access.
+    await session.close()
+
     async def event_source() -> AsyncIterator[str]:
         queue = await subscribe(CHANNEL)
         try:
-            latest = (
-                (
-                    await session.execute(
-                        select(Signal)
-                        .where(Signal.status != SignalStatus.FADING)
-                        .order_by(Signal.first_seen_at.desc())
-                        .limit(5)
-                        .options(selectinload(Signal.snapshots))
-                    )
-                )
-                .scalars()
-                .unique()
-                .all()
-            )
-            yield _sse({"type": "hello", "signals": [serialize(s) for s in latest]})
+            yield _sse({"type": "hello", "signals": initial_payload})
             while True:
                 if await request.is_disconnected():
                     break

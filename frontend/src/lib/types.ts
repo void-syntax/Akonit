@@ -41,6 +41,14 @@ export interface Signal {
   is_ignored: boolean;
   velocity: number;
   density_count: number;
+
+  // AI classification (Laya)
+  ai_priority?: 'critical' | 'watch' | 'noise' | null;
+  ai_priority_score?: number;
+  ai_category?: string | null;
+  ai_should_notify?: number;
+  ai_noise_probability?: number;
+  ai_trending_score?: number;
 }
 
 export interface Snapshot {

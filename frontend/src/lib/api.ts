@@ -62,16 +62,28 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // the browser rejects a credentialed response to a wildcard origin, so every
   // request would fail CORS. Auth is a bearer token from localStorage, so no
   // cookie is ever needed.
-  const response = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers,
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers,
+      cache: "no-store",
+    });
+  } catch (err) {
+    throw new ApiError(0, err instanceof Error ? err.message : "Network request failed");
+  }
 
   if (response.status === 204) return undefined as T;
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new ApiError(response.status, "Invalid JSON response");
+    }
+  }
 
   if (!response.ok) {
     const detail =
@@ -135,23 +147,27 @@ export const api = {
 
   conditionTypes: () => request<ConditionOption[]>("/condition-types"),
 
-  signals: (query: FeedQuery = {}) =>
-    request<SignalPage>(`/signals${qs(query as Record<string, unknown>)}`),
+  signals: (query: FeedQuery = {}, init?: RequestInit) =>
+    request<SignalPage>(`/signals${qs(query as Record<string, unknown>)}`, init),
 
   signal: (id: string) => request<SignalDetail>(`/signals/${id}`),
 
   related: (id: string, limit = 6) =>
     request<Signal[]>(`/signals/${id}/related${qs({ limit })}`),
 
-  discover: (query: {
-    limit?: number;
-    country?: string[];
-    source?: string[];
-    tag?: string[];
-    min_strength?: number;
-  } = {}) =>
+  discover: (
+    query: {
+      limit?: number;
+      country?: string[];
+      source?: string[];
+      tag?: string[];
+      min_strength?: number;
+    } = {},
+    init?: RequestInit,
+  ) =>
     request<{ items: Signal[]; total: number }>(
       `/discover${qs(query as Record<string, unknown>)}`,
+      init,
     ),
 
   stats: () => request<PublicStats>("/stats"),

@@ -35,7 +35,7 @@ export default function SavedPage() {
 
   if (!email) {
     return (
-      <div className="empty">
+      <div className="empty" role="status" aria-live="polite">
         <div className="empty-title">Cannot reach the local API</div>
         <p className="empty-text">
           Saved signals are stored in your local database. Start the collector
@@ -55,7 +55,7 @@ export default function SavedPage() {
       {loading && <p className="muted">Loading…</p>}
 
       {!loading && signals.length === 0 && (
-        <div className="empty">
+        <div className="empty" role="status" aria-live="polite">
           <div className="empty-title">Nothing saved yet</div>
           <p className="empty-text">
             Tap the bookmark on any signal to keep it here for later.

@@ -70,9 +70,8 @@ async def run_matching_task(session: AsyncSession) -> dict:
 
 async def run_notification_task(session: AsyncSession) -> dict:
     """Flush due notifications (instants, 15-min, hourly, daily digest)."""
-    queued = await notify_matches(session)
     result = await flush_deliveries(session)
-    return {**result, "queued": queued}
+    return result
 
 
 async def refresh_metrics_task(session: AsyncSession) -> int:

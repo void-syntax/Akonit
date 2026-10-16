@@ -118,49 +118,66 @@ async def notify_matches(
 async def flush_deliveries(session: AsyncSession, limit: int = 50) -> dict:
     """Send everything that is due. Failures are recorded, never fatal."""
     now = datetime.now(UTC)
-    rows = (
-        (
-            await session.execute(
-                select(NotificationDelivery)
-                .where(
-                    NotificationDelivery.status == DeliveryStatus.PENDING,
-                    NotificationDelivery.scheduled_for <= now,
-                )
-                .order_by(NotificationDelivery.created_at)
-                .limit(limit)
-            )
+
+    pending_q = (
+        select(NotificationDelivery)
+        .where(
+            NotificationDelivery.status == DeliveryStatus.PENDING,
+            NotificationDelivery.scheduled_for <= now,
         )
-        .scalars()
-        .all()
+    )
+    failed_q = (
+        select(NotificationDelivery)
+        .where(
+            NotificationDelivery.status == DeliveryStatus.FAILED,
+            NotificationDelivery.attempts < 3,
+        )
     )
 
-    telegram = TelegramClient()
+    pending_rows = (await session.execute(pending_q.order_by(NotificationDelivery.created_at).limit(limit))).scalars().all()
+    failed_rows = (await session.execute(failed_q.order_by(NotificationDelivery.created_at).limit(limit))).scalars().all()
+
+    # Merge, deduplicate by id, preserve order (pending first)
+    seen_ids: set = set()
+    rows = []
+    for row in list(pending_rows) + list(failed_rows):
+        if row.id not in seen_ids:
+            seen_ids.add(row.id)
+            rows.append(row)
+    rows = rows[:limit]
+
     sent = failed = 0
 
-    for delivery in rows:
-        delivery.attempts += 1
-        signal = (
-            await session.get(Signal, delivery.signal_id)
-            if delivery.signal_id
-            else None
-        )
-        if signal is None:
-            delivery.status = DeliveryStatus.SKIPPED
-            continue
-        try:
-            if delivery.channel == NotificationChannel.TELEGRAM:
-                await _send_telegram(session, delivery, signal, telegram)
-            else:
-                await _send_push(session, delivery, signal)
-            if delivery.status == DeliveryStatus.PENDING:
-                delivery.status = DeliveryStatus.SENT
-                delivery.sent_at = now
-                sent += 1
-        except Exception as exc:  # a failed send must never break the loop
-            delivery.status = DeliveryStatus.FAILED
-            delivery.error = str(exc)[:500]
-            failed += 1
-            logger.warning("delivery %s failed: %r", delivery.id, exc)
+    async with TelegramClient() as telegram:
+        for delivery in rows:
+            # FAILED deliveries that hit the attempt cap get skipped instead of retried
+            if delivery.status == DeliveryStatus.FAILED and delivery.attempts >= 3:
+                delivery.status = DeliveryStatus.SKIPPED
+                continue
+
+            delivery.attempts += 1
+            signal = (
+                await session.get(Signal, delivery.signal_id)
+                if delivery.signal_id
+                else None
+            )
+            if signal is None:
+                delivery.status = DeliveryStatus.SKIPPED
+                continue
+            try:
+                if delivery.channel == NotificationChannel.TELEGRAM:
+                    await _send_telegram(session, delivery, signal, telegram)
+                else:
+                    await _send_push(session, delivery, signal)
+                if delivery.status == DeliveryStatus.PENDING:
+                    delivery.status = DeliveryStatus.SENT
+                    delivery.sent_at = now
+                    sent += 1
+            except Exception as exc:  # a failed send must never break the loop
+                delivery.status = DeliveryStatus.FAILED
+                delivery.error = str(exc)[:500]
+                failed += 1
+                logger.warning("delivery %s failed: %r", delivery.id, exc)
 
     await session.commit()
     return {"sent": sent, "failed": failed, "processed": len(rows)}
@@ -231,5 +248,17 @@ async def _collect_subscriptions(session, delivery) -> list[dict]:
     ).scalar_one_or_none()
     if profile is not None and isinstance(profile.push_subscriptions, list):
         subs.extend(profile.push_subscriptions)
-    return subs
-    return queued
+
+    # Deduplicate by endpoint URL; keep first occurrence of each
+    seen_endpoints: set[str] = set()
+    unique_subs: list[dict] = []
+    for sub in subs:
+        if not isinstance(sub, dict):
+            continue
+        endpoint = sub.get("endpoint", "")
+        if endpoint and endpoint not in seen_endpoints:
+            seen_endpoints.add(endpoint)
+            unique_subs.append(sub)
+        elif not endpoint:
+            unique_subs.append(sub)
+    return unique_subs

@@ -107,7 +107,7 @@ export default function EditRadarPage() {
 
   if (!radar) {
     return (
-      <div className="empty">
+      <div className="empty" role="status" aria-live="polite">
         <div className="empty-title">Radar unavailable</div>
         {error && <p className="empty-text">{error}</p>}
         <Link className="btn" href="/radars">
@@ -204,7 +204,7 @@ export default function EditRadarPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <div className="alert alert-error" role="alert" aria-live="assertive">{error}</div>}
 
       <div className="row">
         <div className="spacer" />

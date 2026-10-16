@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   BoltIcon,
@@ -44,6 +44,16 @@ export function SignalCard({ signal, onChange }: Props) {
   const [saved, setSaved] = useState(signal.is_saved);
   const [muted, setMuted] = useState(signal.is_ignored);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Sync local toggle state when the parent refreshes the signal (e.g. from
+  // the live feed). Without this, a save/mute triggered elsewhere diverges.
+  useEffect(() => {
+    setSaved(signal.is_saved);
+  }, [signal.is_saved]);
+  useEffect(() => {
+    setMuted(signal.is_ignored);
+  }, [signal.is_ignored]);
 
   const meta = STATUS_META[signal.status] ?? STATUS_META.NEW;
   const StatusIcon = STATUS_ICON[meta.icon as StatusIconName];
@@ -51,8 +61,12 @@ export function SignalCard({ signal, onChange }: Props) {
   const growthTone = signal.growth > 0 ? "up" : "down";
   const hasGrowth = signal.growth > 0;
 
+  const isCritical = signal.ai_priority === "critical";
+  const isNoise = signal.ai_priority === "noise";
+
   async function toggleSave() {
     setBusy(true);
+    setError(null);
     try {
       if (saved) {
         await api.unsave(signal.id);
@@ -63,8 +77,8 @@ export function SignalCard({ signal, onChange }: Props) {
         setSaved(true);
         onChange?.({ ...signal, is_saved: true });
       }
-    } catch {
-      /* keep the previous state on failure */
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update save state");
     } finally {
       setBusy(false);
     }
@@ -72,6 +86,7 @@ export function SignalCard({ signal, onChange }: Props) {
 
   async function toggleMute() {
     setBusy(true);
+    setError(null);
     try {
       if (muted) {
         await api.unmute(signal.id);
@@ -80,15 +95,18 @@ export function SignalCard({ signal, onChange }: Props) {
         await api.mute(signal.id);
         setMuted(true);
       }
-    } catch {
-      /* ignore */
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update mute state");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <article className="card signal-card" data-status={signal.status}>
+    <article
+      className={`card signal-card ${isCritical ? "signal-card--critical" : ""} ${isNoise ? "signal-card--noise" : ""}`}
+      data-status={signal.status}
+    >
       <div className="card-top">
         <span className={`badge badge-${meta.tone}`}>
           <StatusIcon size={13} />
@@ -105,6 +123,30 @@ export function SignalCard({ signal, onChange }: Props) {
         >
           {sourceName(signal.source_id)}
         </span>
+
+        {signal.ai_category && (
+          <span className="ai-badge ai-badge--category">
+            {signal.ai_category}
+          </span>
+        )}
+
+        {signal.ai_priority === "critical" && (
+          <span className="ai-badge ai-badge--critical">
+            ⚡ Critical
+          </span>
+        )}
+
+        {signal.ai_priority === "watch" && (
+          <span className="ai-badge ai-badge--watch">
+            👁 Watch
+          </span>
+        )}
+
+        {signal.ai_priority === "noise" && (
+          <span className="ai-badge ai-badge--noise">
+            Noise
+          </span>
+        )}
 
         {/* Only claim growth when there was a baseline to grow from. A brand new
             item has nothing to compare against, so showing "+100%" would be a
@@ -125,6 +167,12 @@ export function SignalCard({ signal, onChange }: Props) {
       </Link>
 
       {signal.description && <p className="card-desc">{signal.description}</p>}
+
+      {error && (
+        <p className="text-xs" style={{ color: "var(--danger)", marginTop: 8 }} role="alert" aria-live="assertive">
+          {error}
+        </p>
+      )}
 
       {signal.keywords.length > 0 && (
         <div className="card-tags">

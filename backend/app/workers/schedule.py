@@ -35,34 +35,42 @@ def _install_signal_handlers() -> None:
             loop.add_signal_handler(sig, _stop.set)
 
 
+_GLOBAL_LOCK = asyncio.Lock()
+
+
 async def _cycle_collect() -> None:
-    async with SessionLocal() as session:
-        result = await run_collection_task(session)
-        logger.info("collection finished: %s", result)
+    async with _GLOBAL_LOCK:
+        async with SessionLocal() as session:
+            result = await run_collection_task(session)
+            logger.info("collection finished: %s", result)
 
 
 async def _cycle_match() -> None:
-    async with SessionLocal() as session:
-        result = await run_matching_task(session)
-        logger.info("matching finished: %s", result)
+    async with _GLOBAL_LOCK:
+        async with SessionLocal() as session:
+            result = await run_matching_task(session)
+            logger.info("matching finished: %s", result)
 
 
 async def _cycle_notify() -> None:
-    async with SessionLocal() as session:
-        result = await run_notification_task(session)
-        logger.info("notifications finished: %s", result)
+    async with _GLOBAL_LOCK:
+        async with SessionLocal() as session:
+            result = await run_notification_task(session)
+            logger.info("notifications finished: %s", result)
 
 
 async def _cycle_metrics() -> None:
-    async with SessionLocal() as session:
-        count = await refresh_metrics_task(session)
-        logger.info("metrics refreshed for %d signals", count)
+    async with _GLOBAL_LOCK:
+        async with SessionLocal() as session:
+            count = await refresh_metrics_task(session)
+            logger.info("metrics refreshed for %d signals", count)
 
 
 async def _cycle_cleanup() -> None:
-    async with SessionLocal() as session:
-        result = await cleanup_task(session)
-        logger.info("cleanup finished: %s", result)
+    async with _GLOBAL_LOCK:
+        async with SessionLocal() as session:
+            result = await cleanup_task(session)
+            logger.info("cleanup finished: %s", result)
 
 
 async def main() -> None:

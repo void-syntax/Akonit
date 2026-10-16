@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 import { CloseIcon, TrashIcon } from "@/components/icons";
 import { CustomTagEditor } from "@/components/CustomTagEditor";
 import type { CustomTag, CustomTagDraft, Country, SourceInfo } from "@/lib/types";
@@ -111,16 +113,34 @@ export function TagSheet({
   sources: SourceInfo[];
   saving: boolean;
 }) {
+  const previousFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previousFocus.current = (document.activeElement as HTMLElement) ?? null;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocus.current?.focus?.();
+    };
+  }, [onClose]);
+
   return (
     <div
       className="sheet-backdrop"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
+      aria-labelledby="tag-sheet-title"
     >
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
-          <span className="sheet-title">Custom tag</span>
+          <span className="sheet-title" id="tag-sheet-title">Custom tag</span>
           <div className="spacer" />
           <button
             className="btn btn-sm btn-icon"

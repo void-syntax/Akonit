@@ -7,15 +7,32 @@ export interface FilterOption {
   label: string;
 }
 
-interface Props {
-  label: string;
-  /** A string for single-select, a list for multi-select. */
-  value: string | string[] | null;
-  onChange: (next: never) => void;
-  options: FilterOption[];
-  allLabel: string;
-  /** Free-text search box; essential once the list is long. */
-  searchable?: boolean;
+export type FilterSelectProps =
+  | {
+      label: string;
+      /** Single-select (string or nothing). */
+      value: string | null;
+      onChange: (next: string | null) => void;
+      options: FilterOption[];
+      allLabel: string;
+      /** Free-text search box; essential once the list is long. */
+      searchable?: boolean;
+    }
+  | {
+      label: string;
+      /** Multi-select (list of values). */
+      value: string[];
+      onChange: (next: string[]) => void;
+      options: FilterOption[];
+      allLabel: string;
+      /** Free-text search box; essential once the list is long. */
+      searchable?: boolean;
+    };
+
+function isMultiProps(
+  props: FilterSelectProps,
+): props is Extract<FilterSelectProps, { value: string[] }> {
+  return Array.isArray(props.value);
 }
 
 /**
@@ -26,20 +43,15 @@ interface Props {
  * stays a real button and a real list, which keeps it keyboard reachable without
  * pulling in a popover library.
  */
-export function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-  allLabel,
-  searchable = true,
-}: Props) {
+export function FilterSelect(props: FilterSelectProps) {
+  const { label, options, allLabel, searchable = true } = props;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  const isMulti = Array.isArray(value);
-  const selected = Array.isArray(value) ? value : value ? [value] : [];
+  const selected = Array.isArray(props.value) ? props.value : props.value ? [props.value] : [];
 
   // A menu left open behind a route change or an outside click would trap the
   // pointer, so both close it.
@@ -51,33 +63,34 @@ export function FilterSelect({
       }
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
     }
-    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
 
   function toggle(option: string) {
-    if (isMulti) {
+    if (isMultiProps(props)) {
       const next = selected.includes(option)
         ? selected.filter((v) => v !== option)
         : [...selected, option];
-      (onChange as (v: string[]) => void)(next);
+      props.onChange(next);
     } else {
-      (onChange as (v: string | null) => void)(
-        value === option ? null : option,
-      );
+      props.onChange(props.value === option ? null : option);
       setOpen(false);
     }
   }
 
   function clear() {
-    if (isMulti) (onChange as (v: string[]) => void)([]);
-    else (onChange as (v: string | null) => void)(null);
+    if (isMultiProps(props)) props.onChange([]);
+    else props.onChange(null);
   }
 
   const needle = query.trim().toLowerCase();
@@ -95,6 +108,7 @@ export function FilterSelect({
   return (
     <div className="filter-group" ref={root}>
       <button
+        ref={buttonRef}
         type="button"
         className="filter"
         data-active={selected.length > 0}
@@ -108,7 +122,53 @@ export function FilterSelect({
       </button>
 
       {open && (
-        <div className="filter-menu" role="listbox" aria-label={label}>
+        <div
+          className="filter-menu"
+          role="listbox"
+          aria-label={label}
+          ref={menuRef}
+          onKeyDown={(event) => {
+            const menu = menuRef.current;
+            if (!menu) return;
+            const options = Array.from(
+              menu.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+            );
+            if (options.length === 0) return;
+            const current = document.activeElement as HTMLElement | null;
+            const currentIndex = current ? options.indexOf(current as HTMLButtonElement) : -1;
+
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              const next =
+                currentIndex < 0
+                  ? 0
+                  : Math.min(options.length - 1, currentIndex + 1);
+              options[next]?.focus();
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              const prev =
+                currentIndex <= 0
+                  ? currentIndex < 0
+                    ? options.length - 1
+                    : 0
+                  : currentIndex - 1;
+              options[prev]?.focus();
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              options[0]?.focus();
+            } else if (event.key === "End") {
+              event.preventDefault();
+              options[options.length - 1]?.focus();
+            } else if (event.key === "Enter" && currentIndex >= 0) {
+              event.preventDefault();
+              options[currentIndex]?.click();
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              setOpen(false);
+              buttonRef.current?.focus();
+            }
+          }}
+        >
           {searchable && options.length > 8 && (
             <input
               className="filter-menu-search"

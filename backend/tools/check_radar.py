@@ -57,10 +57,16 @@ def make_signal(**overrides) -> Signal:
 async def main() -> int:
     await init_models()
     async with SessionLocal() as session:
-        user = User(email="radar-check@local", password_hash="x")
-        session.add(user)
-        await session.commit()
-        await session.refresh(user)
+        user = (
+            await session.execute(
+                select(User).where(User.email == "radar-check@local")
+            )
+        ).scalar_one_or_none()
+        if user is None:
+            user = User(email="radar-check@local", password_hash="x")
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
 
         radar = await create_radar(
             session,

@@ -278,7 +278,7 @@ export default function NewRadarPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <div className="alert alert-error" role="alert" aria-live="assertive">{error}</div>}
 
       <div className="row">
         <button className="btn" onClick={runPreview} type="button">

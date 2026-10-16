@@ -1,9 +1,9 @@
 {
-  "matched": 11,
-  "queued": 11,
+  "matched": 0,
+  "queued": 0,
   "delivered": {
     "sent": 0,
     "failed": 0,
-    "processed": 11
+    "processed": 0
   }
 }

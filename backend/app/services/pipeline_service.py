@@ -87,30 +87,38 @@ async def run_collection_cycle(
     Without it every adapter falls back to its own hardcoded seeds, which is why
     a radar for "Korea + Makeup" used to return generic content.
     """
+    import asyncio
+
     stats = PipelineStats()
+    adapters = [
+        adapter
+        for adapter in all_adapters()
+        if not source_ids or adapter.source_id in source_ids
+    ]
+    ctx = FetchContext(
+        countries=countries or [],
+        keywords=keywords or [],
+        limit=limit_per_source,
+    )
 
     client = HttpClient()
     try:
-        for adapter in all_adapters():
-            if source_ids and adapter.source_id not in source_ids:
-                continue
-            ctx = FetchContext(
-                countries=countries or [],
-                keywords=keywords or [],
-                limit=limit_per_source,
-            )
-            try:
-                result = await run_strategy_cascade(adapter, ctx, client)
-            except Exception as exc:  # isolation guarantee
+        tasks = [run_strategy_cascade(adapter, ctx, client) for adapter in adapters]
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for adapter, res in zip(adapters, raw_results):
+            if isinstance(res, BaseException):
                 logger.exception("collector %s crashed", adapter.source_id)
-                stats.errors.append(f"{adapter.source_id}: {exc!r}")
+                stats.errors.append(f"{adapter.source_id}: {res!r}")
                 result = FetchResult(
                     source_id=adapter.source_id,
                     events=[],
                     strategy="none",
                     ok=False,
-                    error=repr(exc),
+                    error=repr(res),
                 )
+            else:
+                result = res
 
             if result.ok and result.events:
                 stats.sources_ok += 1
@@ -150,13 +158,16 @@ async def _store_result(
     stats: PipelineStats,
 ) -> None:
     """Normalize, dedupe, detect and upsert one source's events."""
+    # A cross-source candidate pool is what lets the same topic emerging on
+    # several networks collapse into one signal. Keeping it source-scoped made
+    # `cross_source_count` worthless and duplicated otherwise identical
+    # entities (the "same meme on 4 networks = 4 signals" failure mode).
     recent_events = (
         (
             await session.execute(
                 select(SourceEvent)
-                .where(SourceEvent.source_id == source_id)
                 .order_by(SourceEvent.observed_at.desc())
-                .limit(400)
+                .limit(1000)
             )
         )
         .scalars()
@@ -184,12 +195,40 @@ async def _store_result(
     matcher = build_default_matcher()
     seen_clusters: set[str] = set()
 
+    # Pre-compute cluster IDs for this batch so we can load all matching
+    # signals in a single query instead of one per event (N+1 → 1).
+    batch_cluster_ids: set[str] = set()
+    for event in result.events:
+        cluster_id = find_cluster(
+            event.title,
+            event.description,
+            event.url,
+            event.source_id,
+            event.external_id,
+            candidates,
+        ).cluster_id
+        batch_cluster_ids.add(cluster_id)
+
+    existing_signals: dict[str, Signal] = {}
+    if batch_cluster_ids:
+        rows = (
+            (
+                await session.execute(
+                    select(Signal).where(Signal.cluster_id.in_(batch_cluster_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        existing_signals = {s.cluster_id: s for s in rows}
+
     for event in result.events:
         try:
             # A savepoint keeps one bad event from rolling back the whole batch.
             async with session.begin_nested():
                 await _process_event(
-                    session, event, candidates, matcher, stats, seen_clusters
+                    session, event, candidates, matcher, stats, seen_clusters,
+                    existing_signals,
                 )
             stats.events_stored += 1
         except Exception as exc:  # one bad event must not kill the batch
@@ -204,6 +243,7 @@ async def _process_event(
     matcher,
     stats: PipelineStats,
     seen_clusters: set[str],
+    existing_signals: dict[str, "Signal"] | None = None,
 ) -> None:
     canonical_url = canonicalize_url(event.url)
     fp = fingerprint(event.source_id, event.external_id)
@@ -236,14 +276,18 @@ async def _process_event(
     )
     session.add(source_event)
 
-    signal = (
-        (
-            await session.execute(
-                select(Signal).where(Signal.cluster_id == decision.cluster_id)
+    # Use the pre-loaded dict when available (avoids N+1 queries).
+    if existing_signals is not None:
+        signal = existing_signals.get(decision.cluster_id)
+    else:
+        signal = (
+            (
+                await session.execute(
+                    select(Signal).where(Signal.cluster_id == decision.cluster_id)
+                )
             )
+            .scalar_one_or_none()
         )
-        .scalar_one_or_none()
-    )
 
     if signal is None and decision.cluster_id in seen_clusters:
         # Already handled earlier in this same batch.
@@ -285,24 +329,28 @@ async def _process_event(
         session.add(signal)
         await session.flush()
         seen_clusters.add(decision.cluster_id)
-        session.add(
-            SignalSnapshot(
-                signal_id=signal.id,
-                captured_at=aware(event.observed_at),
-                activity=event.activity,
-                status=SignalStatus.NEW,
-                rank=event.rank,
-            )
-        )
         stats.signals_created += 1
     else:
         signal.previous_activity = signal.current_activity
-        signal.current_activity = event.activity
+        signal.current_activity = max(signal.current_activity, event.activity)
         signal.last_seen_at = aware(event.observed_at)
         stats.signals_updated += 1
 
+    # Track which networks are corroborating this signal so strength
+    # reflects real cross-source spread rather than a fixed 1.
+    sources = set(signal.cross_source_urls or [])
+    if event.source_id not in sources:
+        sources.add(event.source_id)
+        signal.cross_source_urls = sorted(sources)
+        signal.cross_source_count = len(sources)
+
     signal.keywords = _keywords_for(signal, event, matcher)
-    await _recompute(session, signal)
+    await _recompute(
+        session,
+        signal,
+        captured_at=aware(event.observed_at),
+        rank=event.rank,
+    )
     source_event.signal_id = signal.id
 
     candidates.insert(
@@ -336,8 +384,15 @@ def _keywords_for(signal: Signal, event: RawEvent, matcher) -> list[str]:
         return signal.keywords or []
 
 
-async def _recompute(session: AsyncSession, signal: Signal) -> None:
+async def _recompute(
+    session: AsyncSession,
+    signal: Signal,
+    captured_at: datetime | None = None,
+    rank: int | None = None,
+) -> None:
     """Derive growth / acceleration / status / strength and append a snapshot."""
+    snapshot_time = captured_at or datetime.now(UTC)
+    await session.flush()
     history = (
         (
             await session.execute(
@@ -363,7 +418,7 @@ async def _recompute(session: AsyncSession, signal: Signal) -> None:
         ]
 
     metrics = compute_growth_acceleration(
-        points, now=datetime.now(UTC), window_minutes=WINDOW_MINUTES
+        points, now=snapshot_time, window_minutes=WINDOW_MINUTES,
     )
     status, strength = classify(
         metrics,
@@ -383,19 +438,20 @@ async def _recompute(session: AsyncSession, signal: Signal) -> None:
     )
     signal.status = status
     signal.strength = strength
-    signal.last_seen_at = datetime.now(UTC)
+    signal.last_seen_at = snapshot_time
     signal.age_minutes = round(metrics.age_minutes, 1)
 
     session.add(
         SignalSnapshot(
             signal_id=signal.id,
-            captured_at=datetime.now(UTC),
+            captured_at=snapshot_time,
             activity=signal.current_activity,
             previous_activity=signal.previous_activity,
             growth=signal.growth,
             acceleration=signal.acceleration,
             strength=signal.strength,
             status=signal.status,
+            rank=rank if rank is not None else metrics.rank,
             extra={"components": strength_components(metrics)},
         )
     )
@@ -473,6 +529,7 @@ async def refresh_signal_metrics(session: AsyncSession, limit: int = 1000) -> in
             await session.execute(
                 select(Signal)
                 .where(Signal.status != SignalStatus.FADING)
+                .order_by(Signal.last_seen_at.asc())
                 .limit(limit)
             )
         )
