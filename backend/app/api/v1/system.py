@@ -206,3 +206,24 @@ async def collect_now(session: SessionDep, _user: CurrentUser, countries: str | 
         "sources_failed": stats.sources_failed,
         "errors": stats.errors[:10],
     }
+
+
+# Global pause flag for worker collection
+_WORKER_PAUSED = False
+
+@router.post("/system/pause")
+async def pause_worker(_user: CurrentUser):
+    global _WORKER_PAUSED
+    _WORKER_PAUSED = True
+    return {"status": "paused"}
+
+@router.post("/system/resume")
+async def resume_worker(_user: CurrentUser):
+    global _WORKER_PAUSED
+    _WORKER_PAUSED = False
+    return {"status": "running"}
+
+@router.get("/system/worker-status")
+async def get_worker_status():
+    global _WORKER_PAUSED
+    return {"running": not _WORKER_PAUSED, "paused": _WORKER_PAUSED}

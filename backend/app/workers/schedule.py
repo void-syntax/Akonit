@@ -39,6 +39,10 @@ _GLOBAL_LOCK = asyncio.Lock()
 
 
 async def _cycle_collect() -> None:
+    from app.api.v1.system import _WORKER_PAUSED
+    if _WORKER_PAUSED:
+        logger.info("collection skipped (worker is paused by user)")
+        return
     async with _GLOBAL_LOCK:
         async with SessionLocal() as session:
             result = await run_collection_task(session)

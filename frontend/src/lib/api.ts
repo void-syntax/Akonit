@@ -281,4 +281,17 @@ export const api = {
     request<Record<string, unknown>>(`/system/collect${qs({ countries })}`, {
       method: "POST",
     }),
+
+  pauseWorker: () =>
+    request<{ status: string }>("/system/pause", {
+      method: "POST",
+    }),
+
+  resumeWorker: () =>
+    request<{ status: string }>("/system/resume", {
+      method: "POST",
+    }),
+
+  workerStatus: () =>
+    request<{ running: boolean; paused: boolean }>("/system/worker-status"),
 };
