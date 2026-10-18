@@ -327,6 +327,13 @@ async def _process_event(
             status=SignalStatus.NEW,
         )
         
+        # Check text substance and thin content / noise filtering
+        text_content = f"{event.title} {event.description or ''}".strip()
+        words = text_content.split()
+        if len(words) < 6:
+            logger.debug("dropping thin content / low substance event (%s): words=%d", event.external_id, len(words))
+            return
+
         # --- Hook Laya AI Classification ---
         try:
             from app.ai.laya_classifier import classify_signal
@@ -346,8 +353,8 @@ async def _process_event(
             signal.ai_trending_score = classification["trending_score"]
             signal.ai_classified_at = datetime.now(UTC)
 
-            # Smart noise filtering: if noise probability is very high (> 0.85) and strength is low, drop or mark as fading/noise
-            if signal.ai_noise_probability > 0.85 and signal.strength < 35.0:
+            # Smart noise filtering: raise noise threshold (> 0.75 noise probability or priority == noise)
+            if signal.ai_noise_probability > 0.75 or signal.ai_priority == "noise":
                 logger.debug("dropping high-probability noise event (%s): noise_prob=%.2f", event.external_id, signal.ai_noise_probability)
                 return
         except Exception as laya_exc:

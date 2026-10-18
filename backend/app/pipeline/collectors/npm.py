@@ -51,7 +51,13 @@ class NpmSearchStrategy(Strategy):
                 name = pkg.get("name")
                 if not name:
                     continue
+                description = (pkg.get("description") or "").strip()
+                desc_words = description.split()
+                if len(desc_words) < 5 or description.lower() in ("a", "test", "package", "module", "npm package", "none", "todo", "foo", "bar"):
+                    continue
                 downloads = float((entry.get("downloads") or {}).get("monthly") or 0)
+                if downloads < 100:
+                    continue
                 events.append(
                     RawEvent(
                         source_id="npm",

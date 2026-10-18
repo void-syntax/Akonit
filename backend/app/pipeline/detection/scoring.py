@@ -79,10 +79,11 @@ def compute_strength(
     cross_source_count: int = 1,
     window_minutes: int = 15,
     ai_priority_score: float = 0.0,
+    substance_factor: float = 1.0,
 ) -> float:
     """Return strength in the 0..100 range.
 
-    Weighted sum of components, combined with ai_priority_score boost and cross-source confirmation.
+    Weighted sum of components, combined with ai_priority_score boost, cross-source confirmation, and substance factor.
     """
     base_total = (
         growth_score(metrics) * settings.weight_growth
@@ -93,7 +94,7 @@ def compute_strength(
         + persistence_score(metrics) * settings.weight_persistence
         + cross_source_score(cross_source_count) * settings.weight_cross_source
     )
-    base_total *= staleness_penalty(metrics, window_minutes)
+    base_total *= staleness_penalty(metrics, window_minutes) * substance_factor
     
     # Enhanced scoring combining base strength, AI priority score boost, and cross source count synergy
     ai_boost = ai_priority_score * 15.0  # Up to 15 points boost from AI importance
@@ -109,6 +110,7 @@ def strength_components(
     cross_source_count: int = 1,
     window_minutes: int = 15,
     ai_priority_score: float = 0.0,
+    substance_factor: float = 1.0,
 ) -> dict[str, float]:
     """Breakdown for the signal detail page."""
     base_growth = round(growth_score(metrics) * settings.weight_growth, 2)

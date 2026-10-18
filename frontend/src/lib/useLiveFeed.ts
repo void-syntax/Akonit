@@ -2,26 +2,23 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { api } from "./api";
+import { api, type FeedQuery } from "./api";
 import type { Signal } from "./types";
 
 export type LiveState = "connecting" | "live" | "offline";
 
-const POLL_MS = 20_000;
-
 /**
- * Keeps the feed fresh without a refresh.
- *
- * There is no server-sent-events endpoint on the edge deployment, so this polls
- * the feed endpoint instead. Polling is honest about failure: a failed request
- * reports `offline`, whereas a successful one reports `live` even when the
- * database is still empty. An EventSource that 404s would have reported the
- * opposite and looked like an outage.
+ * Keeps the feed fresh without a refresh while respecting active filters.
  */
-export function useLiveFeed(onSignal: (signal: Signal) => void) {
+export function useLiveFeed(
+  query: FeedQuery,
+  onNewSignals: (signals: Signal[]) => void,
+) {
   const [state, setState] = useState<LiveState>("connecting");
-  const handlerRef = useRef(onSignal);
-  handlerRef.current = onSignal;
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const handlerRef = useRef(onNewSignals);
+  handlerRef.current = onNewSignals;
 
   useEffect(() => {
     let active = true;
@@ -30,12 +27,13 @@ export function useLiveFeed(onSignal: (signal: Signal) => void) {
 
     const poll = async () => {
       try {
-        const page = await api.signals({ tab: "all", limit: 5 });
+        const page = await api.signals(queryRef.current);
         if (!active) return;
         setState("live");
         currentInterval = 15_000;
-        const newest = page.items[0];
-        if (newest) handlerRef.current(newest);
+        if (page.items.length > 0) {
+          handlerRef.current(page.items);
+        }
       } catch {
         if (active) {
           setState("offline");
@@ -48,7 +46,7 @@ export function useLiveFeed(onSignal: (signal: Signal) => void) {
       }
     };
 
-    void poll();
+    timerId = setTimeout(() => void poll(), currentInterval);
 
     return () => {
       active = false;

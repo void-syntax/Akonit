@@ -126,6 +126,7 @@ class TrendingNowRssStrategy(Strategy):
                 continue
 
             traffic_raw = _grab(RE_TRAFFIC, block)
+            traffic = parse_traffic(traffic_raw)
             news_titles = RE_NEWS_TITLE.findall(block)
             news_urls = RE_NEWS_URL.findall(block)
             news_sources = [unescape(s) for s in RE_NEWS_SRC.findall(block)]
@@ -133,6 +134,8 @@ class TrendingNowRssStrategy(Strategy):
                 {"title": unescape(t), "url": unescape(u)}
                 for t, u in zip(news_titles, news_urls, strict=False)
             ]
+            if traffic < 200 and not related:
+                continue
 
             slug = title.lower().replace(" ", "-")
             events.append(

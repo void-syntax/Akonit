@@ -1,8 +1,9 @@
-"""Laya AI signal classifier.
+"""Laya AI signal classifier with enhanced data quality and actionability scrutiny.
 
 Laya is a non-autoregressive decision model that classifies signals in ~33ms
 using a single forward pass. No text generation, no hallucination, no LLM overhead.
-Perfect for the laptop: 421M params, runs on CPU or RTX 3050 GPU.
+Enhanced to actively penalize fluff, thin content, and code spam, while boosting
+actionable tech and investment signals.
 """
 from __future__ import annotations
 
@@ -34,7 +35,15 @@ LAYA_QUESTIONS = {
         "criteria": {
             "critical": "Breaking trend, viral, high growth, needs immediate attention, BREAKOUT level",
             "watch": "Interesting signal, moderate growth, worth monitoring, RISING level",
-            "noise": "Low quality, repetitive, spam, low activity, irrelevant or too weak",
+            "noise": "Low quality, repetitive, spam, low activity, thin content, or irrelevant",
+        },
+    },
+    "actionability": {
+        "type": "choice",
+        "instructions": "Is this signal actionable with clear technical, developer, or investment value?",
+        "criteria": {
+            "actionable": "High-value tech release, genuine breakout trend, investment opportunity, or deep substance",
+            "fluff": "Thin snippet, auto-generated boilerplate, pure code without context, or low-value spam",
         },
     },
     "category": {
@@ -92,9 +101,13 @@ def _classify_sync(
     status: str,
 ) -> LayaClassification:
     """Run Laya classification synchronously (called from thread pool)."""
+    text_combined = f"{title} {description}".strip()
+    words = text_combined.split()
+    is_thin = len(words) < 6
+
     router = _get_router()
-    if router is None:
-        return _fallback_classification(strength, growth, status)
+    if router is None or is_thin:
+        return _fallback_classification(strength, growth, status, is_thin)
 
     state = {
         "title": title,
@@ -110,6 +123,7 @@ def _classify_sync(
         answers = result.get("answers", {})
 
         priority_ans = answers.get("priority", {})
+        action_ans = answers.get("actionability", {})
         category_ans = answers.get("category", {})
         notify_ans = answers.get("should_notify", {})
         noise_ans = answers.get("is_noise", {})
@@ -119,21 +133,31 @@ def _classify_sync(
         priority_probs = priority_ans.get("probs", {})
         priority_score = priority_probs.get(priority, 0.5)
 
-        # Smart override for high breakout or high strength signals
-        if status == "breakout" or strength >= 70:
+        actionability_choice = action_ans.get("choice", "actionable")
+        if actionability_choice == "fluff" or is_thin:
+            priority = "noise"
+            priority_score = 0.85
+
+        # Smart override for high breakout or high strength signals with substance
+        if (status == "breakout" or strength >= 70) and not is_thin:
             if priority == "noise":
                 priority = "critical"
                 priority_score = max(priority_score, 0.85)
-        elif status == "rising" or strength >= 45:
+        elif (status == "rising" or strength >= 45) and not is_thin:
             if priority == "noise":
                 priority = "watch"
                 priority_score = max(priority_score, 0.65)
 
         category = category_ans.get("choice", "other")
         should_notify = notify_ans.get("noul", 0.3)
-        noise_probability = noise_ans.get("noul", 0.3)
-        trending_score = (trending_ans.get("score", 1.0) or 1.0) / 2.0
+        if actionability_choice == "fluff":
+            should_notify = min(should_notify, 0.1)
 
+        noise_probability = noise_ans.get("noul", 0.3)
+        if actionability_choice == "fluff" or is_thin:
+            noise_probability = max(noise_probability, 0.9)
+
+        trending_score = (trending_ans.get("score", 1.0) or 1.0) / 2.0
         model_used = result.get("routing", {}).get("model", "unknown")
 
         return LayaClassification(
@@ -147,11 +171,22 @@ def _classify_sync(
         )
     except Exception as exc:
         logger.warning("Laya prediction failed: %r", exc)
-        return _fallback_classification(strength, growth, status)
+        return _fallback_classification(strength, growth, status, is_thin)
 
 
-def _fallback_classification(strength: float, growth: float, status: str) -> LayaClassification:
-    """Rule-based fallback when Laya is unavailable."""
+def _fallback_classification(strength: float, growth: float, status: str, is_thin: bool = False) -> LayaClassification:
+    """Rule-based fallback when Laya is unavailable or content is thin."""
+    if is_thin:
+        return LayaClassification(
+            priority="noise",
+            priority_score=0.9,
+            category="other",
+            should_notify=0.0,
+            noise_probability=0.95,
+            trending_score=0.1,
+            model_used="fallback-thin",
+        )
+
     if strength >= 70 or status == "BREAKOUT":
         priority = "critical"
         priority_score = 0.85

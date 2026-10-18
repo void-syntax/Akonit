@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { FilterSelect } from "@/components/FilterSelect";
 import { IntroHero } from "@/components/IntroHero";
@@ -17,7 +17,7 @@ import type {
   SourceInfo,
   Tag,
 } from "@/lib/types";
-import type { LiveState } from "@/lib/useLiveFeed";
+import { useLiveFeed } from "@/lib/useLiveFeed";
 import { useAuth } from "@/store/auth";
 
 const TABS = [
@@ -36,7 +36,6 @@ export default function FeedPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [liveState, setLiveState] = useState<LiveState>("live");
   const [error, setError] = useState<string | null>(null);
 
   const [stats, setStats] = useState<PublicStats | null>(null);
@@ -50,6 +49,30 @@ export default function FeedPage() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+
+  const query = useMemo(() => {
+    const q: FeedQuery = { tab, limit: 30 };
+    if (radarFilter) q.radar_id = radarFilter;
+    if (countryFilter.length) q.country = countryFilter;
+    if (sourceFilter.length) q.source = sourceFilter;
+    if (tagFilter.length) q.tag = tagFilter;
+    if (search.trim()) q.keyword = search.trim();
+    if (minStrength > 0) q.min_strength = minStrength;
+    return q;
+  }, [tab, radarFilter, countryFilter, sourceFilter, tagFilter, search, minStrength]);
+
+  const liveState = useLiveFeed(
+    query,
+    useCallback((fetchedItems: Signal[]) => {
+      setSignals((prev) => {
+        const existingIds = new Set(prev.map((s) => s.id));
+        const trulyNew = fetchedItems.filter((s) => !existingIds.has(s.id));
+        if (trulyNew.length === 0) return prev;
+        return [...trulyNew, ...prev];
+      });
+      setTotal((prev) => Math.max(prev, fetchedItems.length));
+    }, []),
+  );
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -141,44 +164,7 @@ export default function FeedPage() {
     })();
   }, []);
 
-  const onLiveSignal = useCallback(
-    async () => {
-      try {
-        const query: FeedQuery = { tab, limit: 30 };
-        if (radarFilter) query.radar_id = radarFilter;
-        if (countryFilter.length) query.country = countryFilter;
-        if (sourceFilter.length) query.source = sourceFilter;
-        if (tagFilter.length) query.tag = tagFilter;
-        if (search.trim()) query.keyword = search.trim();
-        if (minStrength > 0) query.min_strength = minStrength;
 
-        const page = await api.signals(query);
-        setSignals(page.items);
-        setTotal(page.total);
-        setLiveState("live");
-      } catch {
-        setLiveState("offline");
-      }
-    },
-    [tab, radarFilter, countryFilter, sourceFilter, tagFilter, search, minStrength],
-  );
-
-  useEffect(() => {
-    let active = true;
-    let timerId: ReturnType<typeof setInterval> | null = null;
-
-    const poll = async () => {
-      if (!active) return;
-      await onLiveSignal();
-    };
-
-    timerId = setInterval(() => void poll(), 10_000);
-
-    return () => {
-      active = false;
-      if (timerId) clearInterval(timerId);
-    };
-  }, [onLiveSignal]);
 
   const hasFilters = Boolean(
     radarFilter ||
