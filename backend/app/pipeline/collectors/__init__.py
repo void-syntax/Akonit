@@ -4,6 +4,7 @@ Adding a new collector is a single new file plus one import line below.
 """
 
 from app.pipeline.collectors import ai_tech  # noqa: F401
+from app.pipeline.collectors.adapters import rss_news  # noqa: F401
 from app.pipeline.collectors import devto  # noqa: F401
 from app.pipeline.collectors import google_news_trends  # noqa: F401
 from app.pipeline.collectors import google_trends  # noqa: F401

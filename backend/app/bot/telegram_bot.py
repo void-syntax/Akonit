@@ -62,6 +62,9 @@ async def start_bot() -> None:
             "/new — Latest new signals\n"
             "/rising — Rising signals\n"
             "/breakout — Breakout alerts\n"
+            "/digest — Intelligence digest\n"
+            "/sources — Tracked sources\n"
+            "/search <kw> — Search signals\n"
             "/status — System status\n"
             "/radars — Your radars\n"
             "/mute 2 — Mute for 2 hours\n"
@@ -231,6 +234,80 @@ async def start_bot() -> None:
             parse_mode="Markdown",
         )
 
+    async def cmd_digest(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+        from app.db.session import SessionLocal
+        from app.models import Signal
+        from app.models.enums import SignalStatus
+        from sqlalchemy import select, func
+
+        async with SessionLocal() as session:
+            top_signals = (await session.execute(
+                select(Signal)
+                .where(Signal.status != SignalStatus.FADING)
+                .order_by(Signal.strength.desc())
+                .limit(3)
+            )).scalars().all()
+            breakouts = (await session.execute(
+                select(Signal)
+                .where(Signal.status == SignalStatus.BREAKOUT)
+                .limit(3)
+            )).scalars().all()
+            total_count = (await session.execute(select(func.count(Signal.id)))).scalar() or 0
+
+        lines = [
+            "📊 *Signal Intelligence Daily Digest*",
+            f"🕒 Generated at {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}",
+            f"📈 Total Tracked Signals: *{total_count}*\n",
+        ]
+
+        if breakouts:
+            lines.append("🚨 *Top Breakouts:*")
+            for s in breakouts:
+                lines.append(f"• *{s.title[:50]}* (STR {s.strength:.0f})")
+            lines.append("")
+
+        if top_signals:
+            lines.append("🏆 *Top Signals:*")
+            for s in top_signals:
+                lines.append(f"• *{s.title[:50]}* (STR {s.strength:.0f})")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+    async def cmd_sources(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+        from app.pipeline.collectors import registry_snapshot
+        snapshot = registry_snapshot()
+        lines = ["🔌 *Tracked Intelligence Sources*\n"]
+        for src in snapshot[:12]:
+            lines.append(f"• *{src['name']}* (`{src['id']}`) — {src['type']}")
+        if len(snapshot) > 12:
+            lines.append(f"\n_...and {len(snapshot) - 12} more sources active_")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+    async def cmd_search(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+        if not ctx.args:
+            await update.message.reply_text("Usage: `/search <keyword>`", parse_mode="Markdown")
+            return
+        query = " ".join(ctx.args).strip()
+        from app.db.session import SessionLocal
+        from app.models import Signal
+        from sqlalchemy import select, or_
+
+        async with SessionLocal() as session:
+            signals = (await session.execute(
+                select(Signal)
+                .where(or_(Signal.title.ilike(f"%{query}%"), Signal.description.ilike(f"%{query}%")))
+                .order_by(Signal.strength.desc())
+                .limit(5)
+            )).scalars().all()
+
+        await _send_signals(update, signals, f"🔍 Search results for '{query}'")
+
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("status", cmd_status))
@@ -240,6 +317,9 @@ async def start_bot() -> None:
     app.add_handler(CommandHandler("breakout", cmd_breakout))
     app.add_handler(CommandHandler("radars", cmd_radars))
     app.add_handler(CommandHandler("mute", cmd_mute))
+    app.add_handler(CommandHandler("digest", cmd_digest))
+    app.add_handler(CommandHandler("sources", cmd_sources))
+    app.add_handler(CommandHandler("search", cmd_search))
 
     logger.info("Telegram bot starting in polling mode (@akonit_analitik_bot)")
     await app.initialize()
