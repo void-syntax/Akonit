@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import auth, notifications, radars, signals, stream, system, taxonomy
+from app.core.cache import close_cache
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.redis_bus import close_redis, get_redis
@@ -93,6 +94,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
     await close_redis()
+    await close_cache()
     await db_session.engine.dispose()
 
 

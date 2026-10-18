@@ -219,21 +219,29 @@ async def classify_signal(
     strength: float | None = 0.0,
     status: str | None = "new",
 ) -> LayaClassification:
-    """Async wrapper: runs Laya in a thread pool so it never blocks the event loop."""
-    loop = asyncio.get_running_loop()
-    safe_growth = float(growth or 0.0)
-    safe_strength = float(strength or 0.0)
-    safe_status = str(status or "new")
-    return await loop.run_in_executor(
-        _executor,
-        _classify_sync,
-        title,
-        description,
-        source_id,
-        safe_growth,
-        safe_strength,
-        safe_status,
-    )
+    """Async wrapper with cache-aside pattern for Laya classifications."""
+    from app.core.cache import cache_aside
+    import hashlib
+
+    cache_key = f"laya:classify:{hashlib.md5(f'{title}:{description}:{source_id}:{growth}:{strength}:{status}'.encode('utf-8')).hexdigest()}"
+
+    async def _fetch():
+        loop = asyncio.get_running_loop()
+        safe_growth = float(growth or 0.0)
+        safe_strength = float(strength or 0.0)
+        safe_status = str(status or "new")
+        return await loop.run_in_executor(
+            _executor,
+            _classify_sync,
+            title,
+            description,
+            source_id,
+            safe_growth,
+            safe_strength,
+            safe_status,
+        )
+
+    return await cache_aside(cache_key, _fetch, ttl_seconds=3600)
 
 
 async def warm_up() -> bool:

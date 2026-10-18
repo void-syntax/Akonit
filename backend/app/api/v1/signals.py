@@ -88,113 +88,141 @@ async def list_signals(
     limit: int = Query(default=30, le=100),
     offset: int = 0,
 ):
-    """Public feed. Signed-in visitors additionally get saved/ignored flags."""
-    statement = select(Signal)
+    """Public feed with cache-aside pattern."""
+    from app.core.cache import cache_aside
+    import json
+    import hashlib
 
-    if tab == "rising":
-        statement = statement.where(
-            Signal.status.in_([SignalStatus.RISING, SignalStatus.BREAKOUT])
-        )
-    elif tab == "breakout":
-        statement = statement.where(Signal.status == SignalStatus.BREAKOUT)
-    elif tab == "new":
-        statement = statement.where(Signal.status == SignalStatus.NEW)
-    elif tab == "discover":
-        statement = statement.where(
-            Signal.status.in_(
-                [
-                    SignalStatus.NEW,
-                    SignalStatus.RISING,
-                    SignalStatus.BREAKOUT,
-                ]
-            )
-        )
-    elif tab == "saved":
-        if user is None:
-            return SignalPage(items=[], total=0, limit=limit, offset=offset)
-        statement = statement.join(
-            SavedSignal, SavedSignal.signal_id == Signal.id
-        ).where(SavedSignal.user_id == user.id)
+    # Build cache key based on query parameters and user presence/id (if saved tab)
+    user_key_part = f"user:{user.id}" if user and tab == "saved" else "anon"
+    params_dict = {
+        "tab": tab,
+        "status": [s.value for s in status_filter] if status_filter else None,
+        "country": country,
+        "source": source,
+        "radar_id": radar_id,
+        "tag": tag,
+        "keyword": keyword,
+        "min_strength": min_strength,
+        "max_age_minutes": max_age_minutes,
+        "limit": limit,
+        "offset": offset,
+        "user_part": user_key_part,
+    }
+    cache_key = f"signals:list:{hashlib.md5(json.dumps(params_dict, sort_keys=True, default=str).encode('utf-8')).hexdigest()}"
 
-    if status_filter:
-        statement = statement.where(Signal.status.in_(status_filter))
-    if country:
-        statement = statement.where(Signal.country_code.in_([c.upper() for c in country]))
-    if source:
-        statement = statement.where(Signal.source_id.in_(source))
-    if min_strength is not None:
-        statement = statement.where(Signal.strength >= min_strength)
-    if max_age_minutes is not None:
-        cutoff = datetime.now(UTC) - timedelta(minutes=max_age_minutes)
-        statement = statement.where(Signal.first_seen_at >= cutoff)
-    if keyword:
-        escaped = keyword.replace("%", r"\%").replace("_", r"\_")
-        pattern = f"%{escaped.lower()}%"
-        statement = statement.where(
-            func.lower(Signal.title).like(pattern)
-            | func.lower(Signal.description).like(pattern)
-        )
-    if radar_id:
-        if user is None:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-        radar = (
-            await session.execute(
-                select(Radar).where(
-                    Radar.id == radar_id, Radar.user_id == user.id
-                )
-            )
-        ).scalar_one_or_none()
-        if radar is None:
-            raise HTTPException(status_code=404, detail="Radar not found")
-        statement = statement.join(
-            RadarSignal, RadarSignal.signal_id == Signal.id
-        ).where(RadarSignal.radar_id == radar_id)
+    async def _fetch():
+        statement = select(Signal)
 
-    # Tags are filtered in SQL, not in Python. Filtering after the query meant
-    # `total` counted every signal regardless of the tag filter, and pagination
-    # silently returned short pages once a tag was selected.
-    #
-    # A LIKE over the serialised JSON is used deliberately instead of
-    # json_each/jsonb_array_elements: it renders identically on Postgres and
-    # SQLite, needs no dialect-specific lateral join, and cannot produce a
-    # duplicate row per matching tag. The value is a quoted JSON string, so a
-    # needle of '"tag"' cannot match inside a longer tag name.
-    if tag:
-        needles = [f'"{t.lower()}"' for t in tag if t]
-        if needles:
-            serialised = cast(Signal.keywords, Text)
+        if tab == "rising":
             statement = statement.where(
-                or_(*[serialised.like(f"%{n}%") for n in needles])
+                Signal.status.in_([SignalStatus.RISING, SignalStatus.BREAKOUT])
             )
-
-    total = (
-        await session.execute(select(func.count()).select_from(statement.subquery()))
-    ).scalar_one()
-    rows = (
-        (
-            await session.execute(
-                statement.order_by(
-                    Signal.strength.desc(), Signal.first_seen_at.desc()
+        elif tab == "breakout":
+            statement = statement.where(Signal.status == SignalStatus.BREAKOUT)
+        elif tab == "new":
+            statement = statement.where(Signal.status == SignalStatus.NEW)
+        elif tab == "discover":
+            statement = statement.where(
+                Signal.status.in_(
+                    [
+                        SignalStatus.NEW,
+                        SignalStatus.RISING,
+                        SignalStatus.BREAKOUT,
+                    ]
                 )
-                .limit(limit)
-                .offset(offset)
             )
+        elif tab == "saved":
+            if user is None:
+                return {"items": [], "total": 0, "limit": limit, "offset": offset}
+            statement = statement.join(
+                SavedSignal, SavedSignal.signal_id == Signal.id
+            ).where(SavedSignal.user_id == user.id)
+
+        if status_filter:
+            statement = statement.where(Signal.status.in_(status_filter))
+        if country:
+            statement = statement.where(Signal.country_code.in_([c.upper() for c in country]))
+        if source:
+            statement = statement.where(Signal.source_id.in_(source))
+        if min_strength is not None:
+            statement = statement.where(Signal.strength >= min_strength)
+        if max_age_minutes is not None:
+            cutoff = datetime.now(UTC) - timedelta(minutes=max_age_minutes)
+            statement = statement.where(Signal.first_seen_at >= cutoff)
+        if keyword:
+            escaped = keyword.replace("%", r"\%").replace("_", r"\_")
+            pattern = f"%{escaped.lower()}%"
+            statement = statement.where(
+                func.lower(Signal.title).like(pattern)
+                | func.lower(Signal.description).like(pattern)
+            )
+        if radar_id:
+            if user is None:
+                raise HTTPException(status_code=401, detail="Not authenticated")
+            radar = (
+                await session.execute(
+                    select(Radar).where(
+                        Radar.id == radar_id, Radar.user_id == user.id
+                    )
+                )
+            ).scalar_one_or_none()
+            if radar is None:
+                raise HTTPException(status_code=404, detail="Radar not found")
+            statement = statement.join(
+                RadarSignal, RadarSignal.signal_id == Signal.id
+            ).where(RadarSignal.radar_id == radar_id)
+
+        if tag:
+            needles = [f'"{t.lower()}"' for t in tag if t]
+            if needles:
+                serialised = cast(Signal.keywords, Text)
+                statement = statement.where(
+                    or_(*[serialised.like(f"%{n}%") for n in needles])
+                )
+
+        total = (
+            await session.execute(select(func.count()).select_from(statement.subquery()))
+        ).scalar_one()
+        rows = (
+            (
+                await session.execute(
+                    statement.order_by(
+                        Signal.strength.desc(), Signal.first_seen_at.desc()
+                    )
+                    .limit(limit)
+                    .offset(offset)
+                )
+            )
+            .scalars()
+            .unique()
+            .all()
         )
-        .scalars()
-        .unique()
-        .all()
-    )
 
-    saved_ids, ignored_ids = await _user_sets(
-        session, user.id if user else None, [s.id for s in rows]
-    )
+        saved_ids, ignored_ids = await _user_sets(
+            session, user.id if user else None, [s.id for s in rows]
+        )
 
-    return SignalPage(
-        items=_apply_user_flags(list(rows), saved_ids, ignored_ids),
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
+        # Serialize signal objects to dicts or primitive data so they can be cached properly
+        serialized_items = _apply_user_flags(list(rows), saved_ids, ignored_ids)
+        return {
+            "items": [item.model_dump() for item in serialized_items],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    cached_data = await cache_aside(cache_key, _fetch, ttl_seconds=60)
+    if isinstance(cached_data, dict):
+        # Convert items back to SignalOut objects
+        items = [SignalOut(**item) for item in cached_data["items"]]
+        return SignalPage(
+            items=items,
+            total=cached_data["total"],
+            limit=cached_data["limit"],
+            offset=cached_data["offset"],
+        )
+    return cached_data
 
 
 @router.get("/{signal_id}", response_model=SignalDetail)
