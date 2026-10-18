@@ -743,14 +743,13 @@ input:focus, select:focus, textarea:focus {
    ========================================================================== */
 .filters {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s2);
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: visible;
   padding-bottom: var(--s3);
   margin-bottom: var(--s4);
-  scrollbar-width: thin;
   position: relative;
-  z-index: 50;
+  z-index: 500;
 }
 
 .filters::-webkit-scrollbar {

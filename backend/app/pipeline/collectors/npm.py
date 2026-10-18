@@ -51,10 +51,22 @@ class NpmSearchStrategy(Strategy):
                 name = pkg.get("name")
                 if not name:
                     continue
+                title = name.strip()
+                title_words = title.split()
                 description = (pkg.get("description") or "").strip()
                 desc_words = description.split()
-                if len(desc_words) < 5 or description.lower() in ("a", "test", "package", "module", "npm package", "none", "todo", "foo", "bar"):
+
+                # Remove thin, uninformative items (1-2 word titles without context, code snippets, noise)
+                if len(title_words) < 2 and len(description) < 30:
                     continue
+                if len(desc_words) < 5 or description.lower() in ("a", "test", "package", "module", "npm package", "none", "todo", "foo", "bar", "null", "undefined"):
+                    continue
+
+                combined = f"{title} {description}".lower()
+                code_indicators = ["import ", "const ", "function(", "def ", "class ", "console.log", "=>", "<?php", "select * from"]
+                if any(ind in combined for ind in code_indicators) and len(description) < 30:
+                    continue
+
                 downloads = float((entry.get("downloads") or {}).get("monthly") or 0)
                 if downloads < 100:
                     continue

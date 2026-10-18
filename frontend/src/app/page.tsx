@@ -45,10 +45,16 @@ export default function FeedPage() {
   const [sourceFilter, setSourceFilter] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [minStrength, setMinStrength] = useState(0);
   const [countries, setCountries] = useState<Country[]>([]);
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const query = useMemo(() => {
     const q: FeedQuery = { tab, limit: 30 };
@@ -56,10 +62,10 @@ export default function FeedPage() {
     if (countryFilter.length) q.country = countryFilter;
     if (sourceFilter.length) q.source = sourceFilter;
     if (tagFilter.length) q.tag = tagFilter;
-    if (search.trim()) q.keyword = search.trim();
+    if (debouncedSearch.trim()) q.keyword = debouncedSearch.trim();
     if (minStrength > 0) q.min_strength = minStrength;
     return q;
-  }, [tab, radarFilter, countryFilter, sourceFilter, tagFilter, search, minStrength]);
+  }, [tab, radarFilter, countryFilter, sourceFilter, tagFilter, debouncedSearch, minStrength]);
 
   const liveState = useLiveFeed(
     query,

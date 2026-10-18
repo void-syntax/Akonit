@@ -125,6 +125,13 @@ class TrendingNowRssStrategy(Strategy):
             if not title:
                 continue
 
+            # Remove thin, uninformative items (1-2 word titles, noise words)
+            title_words = title.strip().split()
+            if len(title_words) < 2:
+                continue
+            if title.lower().strip() in ("test", "none", "null", "undefined", "foo", "bar"):
+                continue
+
             traffic_raw = _grab(RE_TRAFFIC, block)
             traffic = parse_traffic(traffic_raw)
             news_titles = RE_NEWS_TITLE.findall(block)
@@ -134,6 +141,13 @@ class TrendingNowRssStrategy(Strategy):
                 {"title": unescape(t), "url": unescape(u)}
                 for t, u in zip(news_titles, news_urls, strict=False)
             ]
+
+            desc = related[0]["title"] if related else ""
+            combined = f"{title} {desc}".lower()
+            code_indicators = ["import ", "const ", "function(", "def ", "class ", "console.log", "=>", "<?php", "select * from"]
+            if any(ind in combined for ind in code_indicators) and len(desc.strip()) < 30:
+                continue
+
             if traffic < 200 and not related:
                 continue
 

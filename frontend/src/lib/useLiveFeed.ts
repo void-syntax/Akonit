@@ -46,13 +46,14 @@ export function useLiveFeed(
       }
     };
 
-    timerId = setTimeout(() => void poll(), currentInterval);
+    // Poll immediately on query change / mount, then follow interval
+    void poll();
 
     return () => {
       active = false;
       if (timerId) clearTimeout(timerId);
     };
-  }, []);
+  }, [JSON.stringify(query)]);
 
   return state;
 }
