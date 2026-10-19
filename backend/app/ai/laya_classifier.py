@@ -25,6 +25,9 @@ class LayaClassification(TypedDict):
     should_notify: float   # 0.0 - 1.0 probability of yes
     noise_probability: float  # 0.0 - 1.0 higher = more likely noise
     trending_score: float  # 0.0 - 1.0
+    alpha_score: float     # 0.0 - 100.0 institutional alpha score
+    monetization_potential: float  # 0.0 - 100.0 financial/developer monetization potential
+    breakout_probability: float  # 0.0 - 1.0 exponential breakout probability
     model_used: str
 
 
@@ -71,6 +74,16 @@ LAYA_QUESTIONS = {
         "type": "score",
         "instructions": "How confident are you that this is a genuine trending signal and not a fluke?",
         "criteria": ["likely fluke or noise", "possibly trending", "clearly trending and significant"],
+    },
+    "alpha_potential": {
+        "type": "score",
+        "instructions": "Rate the institutional alpha and investment/developer value of this signal from 0 to 100.",
+        "criteria": ["low alpha / noise", "moderate developer or market interest", "exceptional institutional alpha and breakout potential"],
+    },
+    "monetization": {
+        "type": "score",
+        "instructions": "Estimate the financial or developer monetization potential of this technology, product, or trend from 0 to 100.",
+        "criteria": ["no clear commercial model", "moderate commercial viability", "high monetization and venture/developer scale"],
     },
 }
 
@@ -134,6 +147,9 @@ def _classify_sync(
             noise_ans = answers.get("is_noise", {})
             trending_ans = answers.get("trending_confidence", {})
 
+            alpha_ans = answers.get("alpha_potential", {})
+            monet_ans = answers.get("monetization", {})
+
             priority = priority_ans.get("choice", "watch")
             priority_probs = priority_ans.get("probs", {})
             priority_score = priority_probs.get(priority, 0.5)
@@ -163,6 +179,9 @@ def _classify_sync(
                 noise_probability = max(noise_probability, 0.9)
 
             trending_score = (trending_ans.get("score", 1.0) or 1.0) / 2.0
+            alpha_score = float(alpha_ans.get("score", strength) or strength)
+            monetization_potential = float(monet_ans.get("score", strength * 0.8) or (strength * 0.8))
+            breakout_probability = min(max((strength / 100.0) * (1.0 - noise_probability), 0.0), 1.0)
             model_used = result.get("routing", {}).get("model", "unknown")
 
             return LayaClassification(
@@ -172,6 +191,9 @@ def _classify_sync(
                 should_notify=float(should_notify),
                 noise_probability=float(noise_probability),
                 trending_score=float(trending_score),
+                alpha_score=alpha_score,
+                monetization_potential=monetization_potential,
+                breakout_probability=breakout_probability,
                 model_used=model_used,
             )
         except Exception as exc:
@@ -191,6 +213,9 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
             should_notify=0.0,
             noise_probability=0.95,
             trending_score=0.1,
+            alpha_score=5.0,
+            monetization_potential=5.0,
+            breakout_probability=0.01,
             model_used="fallback-thin",
         )
 
@@ -198,18 +223,30 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         priority = "critical"
         priority_score = 0.85
         should_notify = 0.8
+        alpha_score = max(strength, 85.0)
+        monetization_potential = 80.0
+        breakout_probability = 0.9
     elif strength >= 45 or status == "RISING":
         priority = "watch"
         priority_score = 0.65
         should_notify = 0.4
+        alpha_score = max(strength, 60.0)
+        monetization_potential = 55.0
+        breakout_probability = 0.5
     elif status == "NEW":
         priority = "watch"
         priority_score = 0.5
         should_notify = 0.2
+        alpha_score = max(strength, 40.0)
+        monetization_potential = 40.0
+        breakout_probability = 0.25
     else:
         priority = "noise" if strength < 30 else "watch"
         priority_score = 0.4
         should_notify = 0.1
+        alpha_score = strength
+        monetization_potential = 20.0
+        breakout_probability = 0.1
 
     return LayaClassification(
         priority=priority,
@@ -218,6 +255,9 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         should_notify=should_notify,
         noise_probability=0.3 if priority != "noise" else 0.7,
         trending_score=min(strength / 100.0, 1.0),
+        alpha_score=alpha_score,
+        monetization_potential=monetization_potential,
+        breakout_probability=breakout_probability,
         model_used="fallback",
     )
 

@@ -80,10 +80,11 @@ def compute_strength(
     window_minutes: int = 15,
     ai_priority_score: float = 0.0,
     substance_factor: float = 1.0,
+    alpha_score: float = 0.0,
 ) -> float:
     """Return strength in the 0..100 range.
 
-    Weighted sum of components, combined with ai_priority_score boost, cross-source confirmation, and substance factor.
+    Weighted sum of components, combined with ai_priority_score boost, alpha intelligence score, cross-source confirmation, and substance factor.
     """
     base_total = (
         growth_score(metrics) * settings.weight_growth
@@ -96,11 +97,12 @@ def compute_strength(
     )
     base_total *= staleness_penalty(metrics, window_minutes) * substance_factor
     
-    # Enhanced scoring combining base strength, AI priority score boost, and cross source count synergy
-    ai_boost = ai_priority_score * 15.0  # Up to 15 points boost from AI importance
-    cross_bonus = min(cross_source_count * 3.0, 15.0) # Up to 15 points cross-source synergy bonus
+    # Enhanced institutional intelligence scoring combining base strength, AI priority, alpha score weight, and cross source synergy
+    ai_boost = ai_priority_score * 12.0
+    alpha_boost = (alpha_score / 100.0) * 15.0  # Institutional alpha boost
+    cross_bonus = min(cross_source_count * 3.5, 15.0) # Cross-source synergy bonus
     
-    total = base_total + ai_boost + cross_bonus
+    total = base_total + ai_boost + alpha_boost + cross_bonus
     return round(min(max(total, 0.0), 100.0), 2)
 
 

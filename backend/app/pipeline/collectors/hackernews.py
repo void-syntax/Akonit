@@ -41,6 +41,7 @@ class HackerNewsStrategy(Strategy):
             url = item.get("url") or f"https://news.ycombinator.com/item?id={story_id}"
             score = float(item.get("score") or 0)
             comments = float(item.get("descendants") or 0)
+            discussion_heat = score + (comments * 2.5)
             events.append(
                 RawEvent(
                     source_id="hackernews",
@@ -48,8 +49,8 @@ class HackerNewsStrategy(Strategy):
                     title=item.get("title", "")[:500],
                     url=url,
                     description=(item.get("text") or "")[:400],
-                    activity=score + comments,
-                    activity_metric="score_plus_comments",
+                    activity=discussion_heat,
+                    activity_metric="discussion_velocity",
                     category="tech_discussion",
                     published_at=datetime.fromtimestamp(
                         item.get("time", 0), tz=UTC
@@ -57,6 +58,7 @@ class HackerNewsStrategy(Strategy):
                     metadata={
                         "score": score,
                         "comments": comments,
+                        "discussion_heat": discussion_heat,
                         "by": item.get("by"),
                         "hn_url": f"https://news.ycombinator.com/item?id={story_id}",
                         "strategy": "firebase_top",

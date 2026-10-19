@@ -68,8 +68,13 @@ class NpmSearchStrategy(Strategy):
                     continue
 
                 downloads = float((entry.get("downloads") or {}).get("monthly") or 0)
+                weekly_downloads = float((entry.get("downloads") or {}).get("weekly") or (downloads / 4.0))
                 if downloads < 100:
                     continue
+                
+                # Activity metric emphasizing weekly spike velocity
+                activity_score = downloads + (weekly_downloads * 4.0)
+                
                 events.append(
                     RawEvent(
                         source_id="npm",
@@ -78,16 +83,15 @@ class NpmSearchStrategy(Strategy):
                         url=pkg.get("links", {}).get("npm")
                         or f"https://www.npmjs.com/package/{name}",
                         description=(pkg.get("description") or "")[:400],
-                        activity=downloads,
-                        activity_metric="monthly_downloads",
+                        activity=activity_score,
+                        activity_metric="download_velocity",
                         category="package",
                         hashtags=pkg.get("keywords") or [],
                         published_at=_parse_iso(pkg.get("date")),
                         metadata={
                             "monthly_downloads": downloads,
-                            "weekly_downloads": (entry.get("downloads") or {}).get(
-                                "weekly"
-                            ),
+                            "weekly_downloads": weekly_downloads,
+                            "download_velocity": round(weekly_downloads * 4.0, 2),
                             "dependents": entry.get("dependents"),
                             "search_score": entry.get("searchScore"),
                             "version": pkg.get("version"),

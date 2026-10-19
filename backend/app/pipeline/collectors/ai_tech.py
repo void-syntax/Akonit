@@ -70,22 +70,36 @@ class GitHubSearchStrategy(Strategy):
             for rank, item in enumerate(data.get("items") or [], start=1):
                 stars = float(item.get("stargazers_count") or 0)
                 forks = float(item.get("forks_count") or 0)
+                created_at = parse_iso(item.get("created_at"))
+                
+                # Calculate star velocity (stars per day)
+                age_days = 1.0
+                if created_at:
+                    delta = datetime.now(UTC) - created_at
+                    age_days = max(delta.total_seconds() / 86400.0, 0.1)
+                stars_per_day = round(stars / age_days, 2)
+                
+                desc = (item.get("description") or "").strip()
+                if len(desc) < 15 and stars < 50:
+                    continue  # Filter out low signal repos with minimal description
+
                 events.append(
                     RawEvent(
                         source_id="github",
                         external_id=f"gh:{item['full_name']}",
                         title=item["full_name"],
                         url=item.get("html_url") or "",
-                        description=(item.get("description") or "")[:400],
-                        activity=stars + forks * 2,
-                        activity_metric="stars",
+                        description=desc[:400],
+                        activity=stars + forks * 2 + (stars_per_day * 10),
+                        activity_metric="star_velocity",
                         category="repository",
                         hashtags=item.get("topics") or [],
-                        published_at=parse_iso(item.get("created_at")),
+                        published_at=created_at,
                         thumbnail=item.get("owner", {}).get("avatar_url"),
                         metadata={
                             "stars": stars,
                             "forks": forks,
+                            "stars_per_day": stars_per_day,
                             "watchers": item.get("watchers_count"),
                             "open_issues": item.get("open_issues_count"),
                             "language": item.get("language"),
