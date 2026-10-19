@@ -25,6 +25,74 @@ logger = get_logger("bot.telegram")
 _muted_until: datetime | None = None
 
 
+def format_telegram_bulletin(signal, radar_name: str | None = None) -> str:
+    flag = signal.flag or "🚨"
+    growth_str = f"+{signal.growth:.0f}%" if signal.growth > 0 else f"{signal.growth:.0f}%"
+    radar_info = f"🎯 Radar: *{radar_name}*\n" if radar_name else ""
+    return (
+        f"🚨 *AKONIT INTELLIGENCE BULLETIN* 🚨\n\n"
+        f"{flag} *{signal.title}*\n\n"
+        f"📊 Strength: *{signal.strength:.1f}* · Growth: *{growth_str}*\n"
+        f"🔌 Source: `{signal.source_id}` · Status: *{signal.status.value.upper()}*\n"
+        f"{radar_info}"
+        f"🔗 [View Signal Details]({settings.frontend_url}/signals/{signal.id})"
+    )
+
+
+async def _background_alert_dispatcher() -> None:
+    """Background loop monitoring for critical/breakout signals with high alpha score and pushing bulletins to @akonit_analitik_bot."""
+    token = settings.telegram_bot_token
+    if not token:
+        return
+
+    notified_signal_ids: set[str] = set()
+    await asyncio.sleep(10)
+
+    while True:
+        try:
+            if is_muted():
+                await asyncio.sleep(60)
+                continue
+
+            from app.db.session import SessionLocal
+            from app.models import Signal
+            from app.models.enums import SignalStatus
+            from app.notifications.telegram import TelegramClient
+            from sqlalchemy import select, or_
+
+            async with SessionLocal() as session:
+                signals = (await session.execute(
+                    select(Signal)
+                    .where(
+                        or_(
+                            Signal.status == SignalStatus.BREAKOUT,
+                            Signal.ai_priority == "critical",
+                        )
+                    )
+                    .order_by(Signal.strength.desc())
+                    .limit(5)
+                )).scalars().all()
+
+                async with TelegramClient(token=token) as client:
+                    for s in signals:
+                        if s.id in notified_signal_ids:
+                            continue
+                        if s.strength >= 60 or s.ai_priority == "critical":
+                            chat_id = "@akonit_analitik_bot"
+                            bulletin = format_telegram_bulletin(s)
+                            try:
+                                await client.send(chat_id, bulletin)
+                                notified_signal_ids.add(s.id)
+                                logger.info("Pushed automated background intelligence bulletin for signal %s to %s", s.id, chat_id)
+                            except Exception as ex:
+                                logger.warning("Failed to push automated telegram bulletin for %s: %r", s.id, ex)
+                            await asyncio.sleep(2)
+        except Exception as exc:
+            logger.warning("Error in background telegram alert dispatcher: %r", exc)
+
+        await asyncio.sleep(300)
+
+
 def is_muted() -> bool:
     global _muted_until
     if _muted_until is None:
@@ -275,6 +343,19 @@ async def start_bot() -> None:
 
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+    async def cmd_summary(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        from app.db.session import SessionLocal
+        from app.models import Signal
+        from sqlalchemy import select
+
+        async with SessionLocal() as session:
+            signals = (await session.execute(
+                select(Signal)
+                .order_by(Signal.strength.desc())
+                .limit(5)
+            )).scalars().all()
+        await _send_signals(update, signals, "⚡ Top 5 Alpha Signals (Summary)")
+
     async def cmd_sources(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
@@ -319,7 +400,11 @@ async def start_bot() -> None:
     app.add_handler(CommandHandler("mute", cmd_mute))
     app.add_handler(CommandHandler("digest", cmd_digest))
     app.add_handler(CommandHandler("sources", cmd_sources))
+    app.add_handler(CommandHandler("summary", cmd_summary))
     app.add_handler(CommandHandler("search", cmd_search))
+
+    logger.info("Starting automated background alert dispatcher task")
+    asyncio.create_task(_background_alert_dispatcher())
 
     logger.info("Telegram bot starting in polling mode (@akonit_analitik_bot)")
     await app.initialize()
