@@ -66,17 +66,21 @@ async def cache_get(key: str) -> Any | None:
                 try:
                     return json.loads(val.decode("utf-8") if isinstance(val, bytes) else val)
                 except Exception:
-                    return pickle.loads(val if isinstance(val, bytes) else val.encode("latin1"))
+                    try:
+                        return pickle.loads(val if isinstance(val, bytes) else val.encode("latin1"))
+                    except Exception as p_exc:
+                        logger.warning("cache: failed to deserialize value for key %s: %s", key, p_exc)
+                        return None
         except Exception as exc:
             logger.warning("cache: redis get failed for key %s (%s)", key, exc)
 
-    # In-memory fallback with TTL check
-    if key in _memory_cache:
-        val, expire_at = _memory_cache[key]
+    # In-memory fallback with safe TTL check
+    entry = _memory_cache.get(key)
+    if entry is not None:
+        val, expire_at = entry
         if expire_at > time.time():
             return val
-        else:
-            del _memory_cache[key]
+        _memory_cache.pop(key, None)
     return None
 
 
@@ -94,20 +98,20 @@ async def cache_set(key: str, value: Any, ttl_seconds: int = 300) -> None:
         except Exception as exc:
             logger.warning("cache: redis set failed for key %s (%s)", key, exc)
 
-    # In-memory fallback
-    # Evict oldest if cache gets large
-    if len(_memory_cache) > 2000:
-        # clear a few expired or first keys
-        now = time.time()
-        expired_keys = [k for k, (_, exp) in _memory_cache.items() if exp < now]
-        for k in expired_keys[:500]:
+    # In-memory fallback: bound memory size strictly to prevent memory leak
+    now = time.time()
+    if len(_memory_cache) >= 2000:
+        # Purge expired keys
+        expired_keys = [k for k, (_, exp) in list(_memory_cache.items()) if exp < now]
+        for k in expired_keys:
             _memory_cache.pop(k, None)
-        if len(_memory_cache) > 2000:
-            # Pop arbitrary items
-            for k in list(_memory_cache.keys())[:200]:
+        # If still over limit, evict oldest
+        if len(_memory_cache) >= 2000:
+            excess = len(_memory_cache) - 1800
+            for k in list(_memory_cache.keys())[:excess]:
                 _memory_cache.pop(k, None)
 
-    _memory_cache[key] = (value, time.time() + ttl_seconds)
+    _memory_cache[key] = (value, now + ttl_seconds)
 
 
 async def cache_delete(key: str) -> None:
