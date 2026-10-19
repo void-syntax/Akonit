@@ -3,3 +3,5 @@
 from __future__ import annotations
 
 from app.pipeline.collectors.adapters import rss_news  # noqa: F401
+from app.pipeline.collectors.adapters import reddit  # noqa: F401
+from app.pipeline.collectors.adapters import arxiv  # noqa: F401
