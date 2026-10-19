@@ -14,6 +14,7 @@ from typing import Any, Callable, TypeVar, Awaitable
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.metrics import cache_hits_total, cache_misses_total
 
 logger = get_logger(__name__)
 
@@ -59,29 +60,41 @@ async def close_cache() -> None:
 async def cache_get(key: str) -> Any | None:
     """Get value from cache (Redis with JSON/pickle or fallback to memory)."""
     client = await get_redis_client()
+    found = False
+    result_val = None
     if client is not None:
         try:
             val = await client.get(key)
             if val is not None:
                 try:
-                    return json.loads(val.decode("utf-8") if isinstance(val, bytes) else val)
+                    result_val = json.loads(val.decode("utf-8") if isinstance(val, bytes) else val)
+                    found = True
                 except Exception:
                     try:
-                        return pickle.loads(val if isinstance(val, bytes) else val.encode("latin1"))
+                        result_val = pickle.loads(val if isinstance(val, bytes) else val.encode("latin1"))
+                        found = True
                     except Exception as p_exc:
                         logger.warning("cache: failed to deserialize value for key %s: %s", key, p_exc)
-                        return None
         except Exception as exc:
             logger.warning("cache: redis get failed for key %s (%s)", key, exc)
 
-    # In-memory fallback with safe TTL check
-    entry = _memory_cache.get(key)
-    if entry is not None:
-        val, expire_at = entry
-        if expire_at > time.time():
-            return val
-        _memory_cache.pop(key, None)
-    return None
+    if not found:
+        # In-memory fallback with safe TTL check
+        entry = _memory_cache.get(key)
+        if entry is not None:
+            val, expire_at = entry
+            if expire_at > time.time():
+                result_val = val
+                found = True
+            else:
+                _memory_cache.pop(key, None)
+
+    if found:
+        cache_hits_total.inc()
+        return result_val
+    else:
+        cache_misses_total.inc()
+        return None
 
 
 async def cache_set(key: str, value: Any, ttl_seconds: int = 300) -> None:

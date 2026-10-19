@@ -297,4 +297,15 @@ export const api = {
 
   workerStatus: () =>
     request<{ running: boolean; paused: boolean }>("/system/worker-status"),
+
+  adminStats: () =>
+    request<{
+      total_signals: number;
+      active_websocket_connections: number;
+      dlq_size: number;
+      cache_hits: number;
+      cache_misses: number;
+      service: string;
+      status: string;
+    }>("/admin/stats"),
 };

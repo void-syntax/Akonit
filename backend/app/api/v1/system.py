@@ -73,6 +73,55 @@ async def source_health(session: SessionDep):
     return {"summary": summary, "sources": items}
 
 
+@router.get("/admin/stats")
+async def admin_stats(session: SessionDep):
+    """JSON summary of key metrics for the Admin Dashboard."""
+    signal_count = (
+        await session.execute(select(func.count()).select_from(Signal))
+    ).scalar_one()
+
+    # Get DLQ count
+    dlq_count = 0
+    try:
+        from app.pipeline.dlq import DeadLetterQueue
+        dlq_items = await DeadLetterQueue.get_failed(session, limit=1000)
+        dlq_count = len(dlq_items)
+    except Exception:
+        pass
+
+    # Import metrics to read sample values/counts
+    from app.core.metrics import (
+        signals_ingested_total,
+        signals_noise_filtered_total,
+        active_websocket_connections,
+        cache_hits_total,
+        cache_misses_total,
+        dlq_size,
+    )
+
+    dlq_size.set(dlq_count)
+
+    return {
+        "total_signals": signal_count,
+        "active_websocket_connections": active_websocket_connections._value.get(),
+        "dlq_size": dlq_count,
+        "cache_hits": cache_hits_total._value.get(),
+        "cache_misses": cache_misses_total._value.get(),
+        "service": "Signal Radar API",
+        "status": "healthy",
+    }
+
+
+@router.post("/admin/dlq/{failed_id}/retry")
+async def retry_dlq_item(failed_id: str, session: SessionDep):
+    """Retry a failed item from the DLQ."""
+    from app.pipeline.dlq import DeadLetterQueue
+    success = await DeadLetterQueue.retry_failed(session, failed_id)
+    if not success:
+        return {"status": "error", "message": "Failed item not found or retry failed"}
+    return {"status": "ok", "message": f"Successfully retried item {failed_id}"}
+
+
 @router.get("/discover")
 async def discover(
     session: SessionDep,

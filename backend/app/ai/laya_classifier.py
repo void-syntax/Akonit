@@ -101,77 +101,84 @@ def _classify_sync(
     status: str,
 ) -> LayaClassification:
     """Run Laya classification synchronously (called from thread pool)."""
-    text_combined = f"{title} {description}".strip()
-    words = text_combined.split()
-    is_thin = len(words) < 6
+    import time
+    from app.core.metrics import laya_classification_duration_seconds
 
-    router = _get_router()
-    if router is None or is_thin:
-        return _fallback_classification(strength, growth, status, is_thin)
-
-    state = {
-        "title": title,
-        "description": description[:500] if description else "",
-        "source": source_id,
-        "growth_pct": f"{growth:+.1f}%",
-        "strength": f"{strength:.1f}/100",
-        "status": status,
-    }
-
+    start_time = time.time()
     try:
-        result = router.predict(state, LAYA_QUESTIONS)
-        answers = result.get("answers", {})
+        text_combined = f"{title} {description}".strip()
+        words = text_combined.split()
+        is_thin = len(words) < 6
 
-        priority_ans = answers.get("priority", {})
-        action_ans = answers.get("actionability", {})
-        category_ans = answers.get("category", {})
-        notify_ans = answers.get("should_notify", {})
-        noise_ans = answers.get("is_noise", {})
-        trending_ans = answers.get("trending_confidence", {})
+        router = _get_router()
+        if router is None or is_thin:
+            return _fallback_classification(strength, growth, status, is_thin)
 
-        priority = priority_ans.get("choice", "watch")
-        priority_probs = priority_ans.get("probs", {})
-        priority_score = priority_probs.get(priority, 0.5)
+        state = {
+            "title": title,
+            "description": description[:500] if description else "",
+            "source": source_id,
+            "growth_pct": f"{growth:+.1f}%",
+            "strength": f"{strength:.1f}/100",
+            "status": status,
+        }
 
-        actionability_choice = action_ans.get("choice", "actionable")
-        if actionability_choice == "fluff" or is_thin:
-            priority = "noise"
-            priority_score = 0.85
+        try:
+            result = router.predict(state, LAYA_QUESTIONS)
+            answers = result.get("answers", {})
 
-        # Smart override for high breakout or high strength signals with substance
-        if (status == "breakout" or strength >= 70) and not is_thin:
-            if priority == "noise":
-                priority = "critical"
-                priority_score = max(priority_score, 0.85)
-        elif (status == "rising" or strength >= 45) and not is_thin:
-            if priority == "noise":
-                priority = "watch"
-                priority_score = max(priority_score, 0.65)
+            priority_ans = answers.get("priority", {})
+            action_ans = answers.get("actionability", {})
+            category_ans = answers.get("category", {})
+            notify_ans = answers.get("should_notify", {})
+            noise_ans = answers.get("is_noise", {})
+            trending_ans = answers.get("trending_confidence", {})
 
-        category = category_ans.get("choice", "other")
-        should_notify = notify_ans.get("noul", 0.3)
-        if actionability_choice == "fluff":
-            should_notify = min(should_notify, 0.1)
+            priority = priority_ans.get("choice", "watch")
+            priority_probs = priority_ans.get("probs", {})
+            priority_score = priority_probs.get(priority, 0.5)
 
-        noise_probability = noise_ans.get("noul", 0.3)
-        if actionability_choice == "fluff" or is_thin:
-            noise_probability = max(noise_probability, 0.9)
+            actionability_choice = action_ans.get("choice", "actionable")
+            if actionability_choice == "fluff" or is_thin:
+                priority = "noise"
+                priority_score = 0.85
 
-        trending_score = (trending_ans.get("score", 1.0) or 1.0) / 2.0
-        model_used = result.get("routing", {}).get("model", "unknown")
+            # Smart override for high breakout or high strength signals with substance
+            if (status == "breakout" or strength >= 70) and not is_thin:
+                if priority == "noise":
+                    priority = "critical"
+                    priority_score = max(priority_score, 0.85)
+            elif (status == "rising" or strength >= 45) and not is_thin:
+                if priority == "noise":
+                    priority = "watch"
+                    priority_score = max(priority_score, 0.65)
 
-        return LayaClassification(
-            priority=priority,
-            priority_score=float(priority_score),
-            category=category,
-            should_notify=float(should_notify),
-            noise_probability=float(noise_probability),
-            trending_score=float(trending_score),
-            model_used=model_used,
-        )
-    except Exception as exc:
-        logger.warning("Laya prediction failed: %r", exc)
-        return _fallback_classification(strength, growth, status, is_thin)
+            category = category_ans.get("choice", "other")
+            should_notify = notify_ans.get("noul", 0.3)
+            if actionability_choice == "fluff":
+                should_notify = min(should_notify, 0.1)
+
+            noise_probability = noise_ans.get("noul", 0.3)
+            if actionability_choice == "fluff" or is_thin:
+                noise_probability = max(noise_probability, 0.9)
+
+            trending_score = (trending_ans.get("score", 1.0) or 1.0) / 2.0
+            model_used = result.get("routing", {}).get("model", "unknown")
+
+            return LayaClassification(
+                priority=priority,
+                priority_score=float(priority_score),
+                category=category,
+                should_notify=float(should_notify),
+                noise_probability=float(noise_probability),
+                trending_score=float(trending_score),
+                model_used=model_used,
+            )
+        except Exception as exc:
+            logger.warning("Laya prediction failed: %r", exc)
+            return _fallback_classification(strength, growth, status, is_thin)
+    finally:
+        laya_classification_duration_seconds.observe(time.time() - start_time)
 
 
 def _fallback_classification(strength: float, growth: float, status: str, is_thin: bool = False) -> LayaClassification:

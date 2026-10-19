@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.api.deps import SessionDep, get_current_user
 from app.core.config import settings
+from app.core.metrics import active_websocket_connections
 from app.db.redis_bus import publish, subscribe, unsubscribe
 from app.models import Signal
 from app.models.enums import SignalStatus
@@ -61,6 +62,7 @@ async def stream_feed(request: Request, session: SessionDep):
     await session.close()
 
     async def event_source() -> AsyncIterator[str]:
+        active_websocket_connections.inc()
         queue = await subscribe(CHANNEL)
         try:
             yield _sse({"type": "hello", "signals": initial_payload})
@@ -75,6 +77,7 @@ async def stream_feed(request: Request, session: SessionDep):
                 yield _sse({"type": "signal", "signal": payload})
         finally:
             await unsubscribe(CHANNEL, queue)
+            active_websocket_connections.dec()
 
     return StreamingResponse(
         event_source(),

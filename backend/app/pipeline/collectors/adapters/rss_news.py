@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.models.enums import SourceType
@@ -15,6 +16,9 @@ from app.pipeline.collectors.base import (
 )
 from app.pipeline.collectors.registry import register_source, run_strategy_cascade
 from app.pipeline.collectors.rss_utils import parse_feed
+from app.pipeline.resilience import get_circuit_breaker, get_rate_limiter
+
+logger = logging.getLogger(__name__)
 
 
 class RssNewsStrategy(Strategy):
@@ -82,4 +86,32 @@ class RssNewsAdapter(SourceAdapter):
     strategies = [RssNewsStrategy()]
 
     async def fetch(self, ctx: FetchContext, client: Any) -> FetchResult:
-        return await run_strategy_cascade(self, ctx, client)
+        cb = get_circuit_breaker(self.source_id)
+        rl = get_rate_limiter(self.source_id)
+
+        if cb.is_open():
+            logger.warning("[%s] Circuit breaker is OPEN. Returning empty list gracefully.", self.source_id)
+            return FetchResult(
+                source_id=self.source_id,
+                events=[],
+                strategy="none",
+                ok=True,
+                notes="circuit open",
+            )
+
+        if not await rl.async_acquire():
+            logger.warning("[%s] Rate limit exceeded. Returning empty list gracefully.", self.source_id)
+            return FetchResult(
+                source_id=self.source_id,
+                events=[],
+                strategy="none",
+                ok=True,
+                notes="rate limit exceeded",
+            )
+
+        result = await run_strategy_cascade(self, ctx, client)
+        if result.ok and result.events:
+            cb.record_success()
+        else:
+            cb.record_failure()
+        return result

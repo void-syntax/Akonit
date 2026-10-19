@@ -70,8 +70,33 @@ async def run_strategy_cascade(
 ) -> FetchResult:
     """Try each strategy in order; first success wins, failures are recorded."""
     from app.pipeline.collectors.base import SourceUnavailable
+    from app.pipeline.resilience import get_circuit_breaker, get_rate_limiter
+
+    cb = get_circuit_breaker(adapter.source_id)
+    rl = get_rate_limiter(adapter.source_id)
+
+    if cb.is_open():
+        logger.warning("[%s] circuit is OPEN. Returning empty list gracefully.", adapter.source_id)
+        return FetchResult(
+            source_id=adapter.source_id,
+            events=[],
+            strategy="none",
+            ok=True,
+            notes="circuit breaker open",
+        )
+
+    if not await rl.async_acquire():
+        logger.warning("[%s] rate limit exceeded. Returning empty list gracefully.", adapter.source_id)
+        return FetchResult(
+            source_id=adapter.source_id,
+            events=[],
+            strategy="none",
+            ok=True,
+            notes="rate limit exceeded",
+        )
 
     errors: list[str] = []
+    strategy_succeeded = False
     for strategy in adapter.strategies:
         try:
             events = await strategy.fetch(client, ctx)
@@ -88,6 +113,8 @@ async def run_strategy_cascade(
             errors.append(f"{strategy.name}: returned no events")
             continue
 
+        strategy_succeeded = True
+        cb.record_success()
         logger.info(
             "[%s] %s fetched %d events", adapter.source_id, strategy.name, len(events)
         )
@@ -98,6 +125,9 @@ async def run_strategy_cascade(
             ok=True,
             notes="; ".join(errors) if errors else None,
         )
+
+    if not strategy_succeeded:
+        cb.record_failure()
 
     return FetchResult(
         source_id=adapter.source_id,

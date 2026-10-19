@@ -111,6 +111,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from prometheus_fastapi_instrumentator import Instrumentator
+
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=True)
+
 @app.get("/health")
 async def root_health():
     return {"status": "ok", "service": "Signal Radar API"}

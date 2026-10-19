@@ -30,6 +30,23 @@ from app.pipeline.normalization.normalizer import (
     slugify,
 )
 from app.services.retention import expiry_for
+try:
+    from app.core.metrics import (
+        signals_ingested_total,
+        signals_noise_filtered_total,
+        pipeline_cycle_duration_seconds,
+    )
+except ImportError:
+    class DummyMetric:
+        def labels(self, **kwargs):
+            return self
+        def inc(self, *args, **kwargs):
+            pass
+        def observe(self, *args, **kwargs):
+            pass
+    signals_ingested_total = DummyMetric()
+    signals_noise_filtered_total = DummyMetric()
+    pipeline_cycle_duration_seconds = DummyMetric()
 
 logger = get_logger(__name__)
 
@@ -88,67 +105,73 @@ async def run_collection_cycle(
     a radar for "Korea + Makeup" used to return generic content.
     """
     import asyncio
+    import time
 
-    stats = PipelineStats()
-    adapters = [
-        adapter
-        for adapter in all_adapters()
-        if not source_ids or adapter.source_id in source_ids
-    ]
-    ctx = FetchContext(
-        countries=countries or [],
-        keywords=keywords or [],
-        limit=limit_per_source,
-    )
-
-    client = HttpClient()
+    start_time = time.time()
     try:
-        tasks = [run_strategy_cascade(adapter, ctx, client) for adapter in adapters]
-        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+        stats = PipelineStats()
+        adapters = [
+            adapter
+            for adapter in all_adapters()
+            if not source_ids or adapter.source_id in source_ids
+        ]
+        ctx = FetchContext(
+            countries=countries or [],
+            keywords=keywords or [],
+            limit=limit_per_source,
+        )
 
-        for adapter, res in zip(adapters, raw_results):
-            if isinstance(res, BaseException):
-                logger.exception("collector %s crashed", adapter.source_id)
-                stats.errors.append(f"{adapter.source_id}: {res!r}")
-                result = FetchResult(
-                    source_id=adapter.source_id,
-                    events=[],
-                    strategy="none",
-                    ok=False,
-                    error=repr(res),
-                )
-            else:
-                result = res
+        client = HttpClient()
+        try:
+            tasks = [run_strategy_cascade(adapter, ctx, client) for adapter in adapters]
+            raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            if result.ok and result.events:
-                stats.sources_ok += 1
-                stats.fetched += len(result.events)
+            for adapter, res in zip(adapters, raw_results):
+                if isinstance(res, BaseException):
+                    logger.exception("collector %s crashed", adapter.source_id)
+                    stats.errors.append(f"{adapter.source_id}: {res!r}")
+                    result = FetchResult(
+                        source_id=adapter.source_id,
+                        events=[],
+                        strategy="none",
+                        ok=False,
+                        error=repr(res),
+                    )
+                else:
+                    result = res
+
+                if result.ok and result.events:
+                    stats.sources_ok += 1
+                    stats.fetched += len(result.events)
+                    try:
+                        await _store_result(session, adapter.source_id, result, stats)
+                    except Exception as exc:
+                        logger.exception("storing %s failed", adapter.source_id)
+                        stats.errors.append(f"{adapter.source_id} store: {exc!r}")
+                else:
+                    stats.sources_failed += 1
+                    stats.errors.append(f"{adapter.source_id}: {result.error}")
+
                 try:
-                    await _store_result(session, adapter.source_id, result, stats)
+                    await _update_source_health(session, adapter.source_id, result)
                 except Exception as exc:
-                    logger.exception("storing %s failed", adapter.source_id)
-                    stats.errors.append(f"{adapter.source_id} store: {exc!r}")
-            else:
-                stats.sources_failed += 1
-                stats.errors.append(f"{adapter.source_id}: {result.error}")
+                    logger.warning(
+                        "health update failed for %s: %r", adapter.source_id, exc
+                    )
+                await session.commit()
+        finally:
+            await client.aclose()
 
-            try:
-                await _update_source_health(session, adapter.source_id, result)
-            except Exception as exc:
-                logger.warning(
-                    "health update failed for %s: %r", adapter.source_id, exc
-                )
-            await session.commit()
+        logger.info(
+            "collection cycle: %d fetched, %d new signals, %d sources ok",
+            stats.fetched,
+            stats.signals_created,
+            stats.sources_ok,
+        )
+        return stats
     finally:
-        await client.aclose()
-
-    logger.info(
-        "collection cycle: %d fetched, %d new signals, %d sources ok",
-        stats.fetched,
-        stats.signals_created,
-        stats.sources_ok,
-    )
-    return stats
+        duration = time.time() - start_time
+        pipeline_cycle_duration_seconds.observe(duration)
 
 
 async def _store_result(
@@ -231,9 +254,14 @@ async def _store_result(
                     existing_signals,
                 )
             stats.events_stored += 1
-        except Exception as exc:  # one bad event must not kill the batch
-            logger.warning("event failed (%s): %r", source_id, exc)
+        except Exception as exc:  # one bad event must not kill the batch, and if it fails 3 times or generally during pipeline processing, send to DLQ
+            logger.warning("event processing failed (%s): %r", source_id, exc)
             stats.errors.append(f"{source_id} event: {exc}")
+            try:
+                from app.pipeline.dlq import DeadLetterQueue
+                await DeadLetterQueue.enqueue_failed(session, event, exc, source=source_id)
+            except Exception as dlq_exc:
+                logger.exception("Failed to enqueue into DLQ: %r", dlq_exc)
 
 
 async def _process_event(
@@ -248,6 +276,19 @@ async def _process_event(
     canonical_url = canonicalize_url(event.url)
     fp = fingerprint(event.source_id, event.external_id)
     content_hash = simhash(f"{event.title} {event.description}")
+
+    # --- Idempotency Guards ---
+    from app.pipeline.dlq import compute_content_hash
+    det_hash = compute_content_hash(event.title, event.source_id, event.published_at or event.observed_at)
+    existing_by_hash = (
+        await session.execute(
+            select(Signal).where(Signal.content_hash == det_hash)
+        )
+    ).scalar_one_or_none()
+
+    if existing_by_hash is not None:
+        logger.debug("silently skipping duplicate signal by content_hash: %s", det_hash)
+        return
 
     decision = find_cluster(
         event.title,
@@ -305,10 +346,12 @@ async def _process_event(
                 event.external_id,
                 first_seen.isoformat(),
             )
+            signals_noise_filtered_total.labels(reason="stale").inc()
             return
 
         signal = Signal(
             cluster_id=decision.cluster_id,
+            content_hash=det_hash,
             title=event.title[:500],
             slug=slugify(event.title),
             description=(event.description or "")[:2000],
@@ -332,6 +375,7 @@ async def _process_event(
         words = text_content.split()
         if len(words) < 6:
             logger.debug("dropping thin content / low substance event (%s): words=%d", event.external_id, len(words))
+            signals_noise_filtered_total.labels(reason="thin_content").inc()
             return
 
         # --- Hook Laya AI Classification ---
@@ -356,6 +400,7 @@ async def _process_event(
             # Smart noise filtering: raise noise threshold (> 0.75 noise probability or priority == noise)
             if signal.ai_noise_probability > 0.75 or signal.ai_priority == "noise":
                 logger.debug("dropping high-probability noise event (%s): noise_prob=%.2f", event.external_id, signal.ai_noise_probability)
+                signals_noise_filtered_total.labels(reason="ai_noise").inc()
                 return
         except Exception as laya_exc:
             logger.debug("Laya classification during ingestion failed: %r", laya_exc)
@@ -364,6 +409,7 @@ async def _process_event(
         await session.flush()
         seen_clusters.add(decision.cluster_id)
         stats.signals_created += 1
+        signals_ingested_total.labels(source_id=event.source_id).inc()
     else:
         signal.previous_activity = signal.current_activity
         signal.current_activity = max(signal.current_activity, event.activity)

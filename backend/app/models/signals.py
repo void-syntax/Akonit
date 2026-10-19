@@ -32,6 +32,7 @@ class Signal(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     cluster_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
 
     title: Mapped[str] = mapped_column(String(500))
     slug: Mapped[str] = mapped_column(String(520), index=True)

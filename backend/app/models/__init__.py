@@ -31,6 +31,7 @@ from app.models.signals import Signal, SignalSnapshot
 from app.models.tags import CustomTag, SignalTag, Tag, TagAlias
 from app.models.taxonomy import Country, Source, SourceEvent
 from app.models.user import User, UserProfile
+from app.pipeline.dlq import FailedSignal
 
 __all__ = [
     "Base",
@@ -45,6 +46,7 @@ __all__ = [
     "SignalTag",
     "Signal",
     "SignalSnapshot",
+    "FailedSignal",
     "Radar",
     "RadarConditionGroup",
     "RadarCondition",
