@@ -38,43 +38,52 @@ def _install_signal_handlers() -> None:
 _GLOBAL_LOCK = asyncio.Lock()
 
 
+from opentelemetry import trace
+
+tracer = trace.get_tracer("signal-radar.workers")
+
 async def _cycle_collect() -> None:
     from app.api.v1.system import _WORKER_PAUSED
     if _WORKER_PAUSED:
         logger.info("collection skipped (worker is paused by user)")
         return
-    async with _GLOBAL_LOCK:
-        async with SessionLocal() as session:
-            result = await run_collection_task(session)
-            logger.info("collection finished: %s", result)
+    with tracer.start_as_current_span("worker.collect"):
+        async with _GLOBAL_LOCK:
+            async with SessionLocal() as session:
+                result = await run_collection_task(session)
+                logger.info("collection finished: %s", result)
 
 
 async def _cycle_match() -> None:
-    async with _GLOBAL_LOCK:
-        async with SessionLocal() as session:
-            result = await run_matching_task(session)
-            logger.info("matching finished: %s", result)
+    with tracer.start_as_current_span("worker.match"):
+        async with _GLOBAL_LOCK:
+            async with SessionLocal() as session:
+                result = await run_matching_task(session)
+                logger.info("matching finished: %s", result)
 
 
 async def _cycle_notify() -> None:
-    async with _GLOBAL_LOCK:
-        async with SessionLocal() as session:
-            result = await run_notification_task(session)
-            logger.info("notifications finished: %s", result)
+    with tracer.start_as_current_span("worker.notify"):
+        async with _GLOBAL_LOCK:
+            async with SessionLocal() as session:
+                result = await run_notification_task(session)
+                logger.info("notifications finished: %s", result)
 
 
 async def _cycle_metrics() -> None:
-    async with _GLOBAL_LOCK:
-        async with SessionLocal() as session:
-            count = await refresh_metrics_task(session)
-            logger.info("metrics refreshed for %d signals", count)
+    with tracer.start_as_current_span("worker.metrics"):
+        async with _GLOBAL_LOCK:
+            async with SessionLocal() as session:
+                count = await refresh_metrics_task(session)
+                logger.info("metrics refreshed for %d signals", count)
 
 
 async def _cycle_cleanup() -> None:
-    async with _GLOBAL_LOCK:
-        async with SessionLocal() as session:
-            result = await cleanup_task(session)
-            logger.info("cleanup finished: %s", result)
+    with tracer.start_as_current_span("worker.cleanup"):
+        async with _GLOBAL_LOCK:
+            async with SessionLocal() as session:
+                result = await cleanup_task(session)
+                logger.info("cleanup finished: %s", result)
 
 
 async def main() -> None:

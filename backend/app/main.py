@@ -111,6 +111,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from app.core.tracing import setup_tracing
+from app.db.session import engine as db_engine
+
+setup_tracing(app=app, engine=db_engine)
+
 from prometheus_fastapi_instrumentator import Instrumentator
 
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=True)

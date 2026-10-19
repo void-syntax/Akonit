@@ -202,6 +202,10 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         priority = "watch"
         priority_score = 0.65
         should_notify = 0.4
+    elif status == "NEW":
+        priority = "watch"
+        priority_score = 0.5
+        should_notify = 0.2
     else:
         priority = "noise" if strength < 30 else "watch"
         priority_score = 0.4

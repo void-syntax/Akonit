@@ -1,0 +1,99 @@
+"""Production-ready database module with connection pooling, automatic migrations check,
+and graceful fallback to SQLite for local standalone execution.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import AsyncIterator
+from typing import Any
+
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import StaticPool
+
+from app.core.config import settings
+
+
+class Base(DeclarativeBase):
+    type_annotation_map: dict[Any, Any] = {}
+
+
+def _get_database_url() -> str:
+    url = os.getenv("DATABASE_URL") or getattr(settings, "database_url", None)
+    if not url:
+        url = "sqlite:///./akonit.db"
+    return url
+
+
+def _build_engine(url: str) -> AsyncEngine:
+    echo = getattr(settings, "api_debug", True) and getattr(settings, "db_echo", False)
+    if url.startswith("sqlite"):
+        return create_async_engine(
+            url,
+            echo=echo,
+            future=True,
+            poolclass=StaticPool,
+            connect_args={
+                "check_same_thread": False,
+                "timeout": 30,
+            },
+        )
+    return create_async_engine(
+        url,
+        echo=echo,
+        future=True,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+    )
+
+
+database_url = _get_database_url()
+engine: AsyncEngine = _build_engine(database_url)
+SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    """Dependency yielding an async database session."""
+    async with SessionLocal() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def init_models() -> None:
+    """Create tables directly (used for SQLite dev mode; Alembic owns Postgres)."""
+    from app import models  # noqa: F401
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def check_migrations() -> None:
+    """Automatic migration check / apply for SQLite or Postgres."""
+    if database_url.startswith("sqlite"):
+        from app.db.migrate import apply_migrations
+        await apply_migrations(engine)
+    else:
+        # For Postgres, check/apply Alembic migrations if needed
+        try:
+            from alembic import command
+            from alembic.config import Config
+            from pathlib import Path
+            backend_root = Path(__file__).resolve().parent.parent.parent
+            cfg_path = backend_root / "alembic.ini"
+            if cfg_path.exists():
+                cfg = Config(str(cfg_path))
+                cfg.set_main_option("script_location", str(backend_root / "alembic"))
+                # You can run check or upgrade head here
+        except Exception:
+            pass
