@@ -6,6 +6,7 @@ import contextlib
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.responses import ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import auth, notifications, radars, signals, stream, system, taxonomy
@@ -109,6 +110,7 @@ app = FastAPI(
     description=DESCRIPTION,
     version="0.1.0",
     lifespan=lifespan,
+    default_response_class=ORJSONResponse,
 )
 
 from app.core.tracing import setup_tracing

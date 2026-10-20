@@ -34,20 +34,31 @@ def _get_database_url() -> str:
 def _build_engine(url: str) -> AsyncEngine:
     echo = getattr(settings, "api_debug", True) and getattr(settings, "db_echo", False)
     if url.startswith("sqlite"):
-        return create_async_engine(
+        engine = create_async_engine(
             url,
             echo=echo,
             future=True,
+            query_cache_size=1200,
             poolclass=StaticPool,
             connect_args={
                 "check_same_thread": False,
                 "timeout": 30,
             },
         )
+        from sqlalchemy import event
+        @event.listens_for(engine.sync_engine, "connect")
+        def _set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.close()
+        return engine
     return create_async_engine(
         url,
         echo=echo,
         future=True,
+        query_cache_size=1200,
         pool_size=10,
         max_overflow=20,
         pool_pre_ping=True,
