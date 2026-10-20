@@ -11,6 +11,7 @@ from app.pipeline.collectors.adapters import sec_edgar  # noqa: F401
 from app.pipeline.collectors.adapters import uspto_patents  # noqa: F401
 from app.pipeline.collectors.adapters import huggingface  # noqa: F401
 from app.pipeline.collectors.adapters import polymarket  # noqa: F401
+from app.pipeline.collectors.adapters import gh_archive  # noqa: F401
 from app.pipeline.collectors import devto  # noqa: F401
 from app.pipeline.collectors import google_news_trends  # noqa: F401
 from app.pipeline.collectors import google_trends  # noqa: F401
