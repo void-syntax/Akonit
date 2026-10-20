@@ -28,6 +28,8 @@ class LayaClassification(TypedDict):
     alpha_score: float     # 0.0 - 100.0 institutional alpha score
     monetization_potential: float  # 0.0 - 100.0 financial/developer monetization potential
     breakout_probability: float  # 0.0 - 1.0 exponential breakout probability
+    actionability_potential: float  # 0.0 - 100.0 actionability potential
+    risk_reward_ratio: float       # numerical risk-to-reward ratio (1.0 - 10.0+)
     model_used: str
 
 
@@ -84,6 +86,16 @@ LAYA_QUESTIONS = {
         "type": "score",
         "instructions": "Estimate the financial or developer monetization potential of this technology, product, or trend from 0 to 100.",
         "criteria": ["no clear commercial model", "moderate commercial viability", "high monetization and venture/developer scale"],
+    },
+    "actionability_potential": {
+        "type": "score",
+        "instructions": "Rate the concrete actionability and execution potential of this signal from 0 to 100.",
+        "criteria": ["vague or non-actionable", "partially actionable or speculative", "highly actionable with clear execution steps or deployment"],
+    },
+    "risk_reward_ratio": {
+        "type": "score",
+        "instructions": "Estimate the risk-to-reward ratio (scale 1 to 10, where higher means superior asymmetric upside relative to downside risk).",
+        "criteria": ["poor risk/reward", "neutral or balanced", "exceptional asymmetric risk/reward upside"],
     },
 }
 
@@ -149,6 +161,8 @@ def _classify_sync(
 
             alpha_ans = answers.get("alpha_potential", {})
             monet_ans = answers.get("monetization", {})
+            actionability_pot_ans = answers.get("actionability_potential", {})
+            risk_reward_ans = answers.get("risk_reward_ratio", {})
 
             priority = priority_ans.get("choice", "watch")
             priority_probs = priority_ans.get("probs", {})
@@ -181,6 +195,11 @@ def _classify_sync(
             trending_score = (trending_ans.get("score", 1.0) or 1.0) / 2.0
             alpha_score = float(alpha_ans.get("score", strength) or strength)
             monetization_potential = float(monet_ans.get("score", strength * 0.8) or (strength * 0.8))
+            actionability_potential = float(actionability_pot_ans.get("score", strength) or strength)
+            risk_reward_ratio = float(risk_reward_ans.get("score", 3.5) or 3.5)
+            if risk_reward_ratio > 10.0:
+                risk_reward_ratio = max(1.0, risk_reward_ratio / 10.0)
+
             breakout_probability = min(max((strength / 100.0) * (1.0 - noise_probability), 0.0), 1.0)
             model_used = result.get("routing", {}).get("model", "unknown")
 
@@ -194,6 +213,8 @@ def _classify_sync(
                 alpha_score=alpha_score,
                 monetization_potential=monetization_potential,
                 breakout_probability=breakout_probability,
+                actionability_potential=actionability_potential,
+                risk_reward_ratio=risk_reward_ratio,
                 model_used=model_used,
             )
         except Exception as exc:
@@ -216,6 +237,8 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
             alpha_score=5.0,
             monetization_potential=5.0,
             breakout_probability=0.01,
+            actionability_potential=5.0,
+            risk_reward_ratio=1.0,
             model_used="fallback-thin",
         )
 
@@ -226,6 +249,8 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         alpha_score = max(strength, 85.0)
         monetization_potential = 80.0
         breakout_probability = 0.9
+        actionability_potential = max(strength, 85.0)
+        risk_reward_ratio = 6.5
     elif strength >= 45 or status == "RISING":
         priority = "watch"
         priority_score = 0.65
@@ -233,6 +258,8 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         alpha_score = max(strength, 60.0)
         monetization_potential = 55.0
         breakout_probability = 0.5
+        actionability_potential = max(strength, 60.0)
+        risk_reward_ratio = 4.0
     elif status == "NEW":
         priority = "watch"
         priority_score = 0.5
@@ -240,6 +267,8 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         alpha_score = max(strength, 40.0)
         monetization_potential = 40.0
         breakout_probability = 0.25
+        actionability_potential = max(strength, 40.0)
+        risk_reward_ratio = 3.0
     else:
         priority = "noise" if strength < 30 else "watch"
         priority_score = 0.4
@@ -247,6 +276,8 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         alpha_score = strength
         monetization_potential = 20.0
         breakout_probability = 0.1
+        actionability_potential = strength
+        risk_reward_ratio = 2.0
 
     return LayaClassification(
         priority=priority,
@@ -258,6 +289,8 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         alpha_score=alpha_score,
         monetization_potential=monetization_potential,
         breakout_probability=breakout_probability,
+        actionability_potential=actionability_potential,
+        risk_reward_ratio=risk_reward_ratio,
         model_used="fallback",
     )
 

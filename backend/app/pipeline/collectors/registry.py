@@ -24,7 +24,8 @@ def register_source(cls: type[A]) -> type[A]:
     """Class decorator: instantiate and store the adapter."""
     adapter = cls()
     if adapter.source_id in _REGISTRY:
-        raise ValueError(f"duplicate source id: {adapter.source_id}")
+        logger.debug("skipping duplicate source id: %s", adapter.source_id)
+        return cls
     _REGISTRY[adapter.source_id] = adapter
     logger.debug("registered source %s (%s)", adapter.source_id, adapter.adapter_name)
     return cls

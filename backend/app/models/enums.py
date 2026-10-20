@@ -43,6 +43,7 @@ class SignalStatus(CaseInsensitiveEnum):
     NEW = "NEW"
     RISING = "RISING"
     BREAKOUT = "BREAKOUT"
+    UNICORN_SIGNAL = "UNICORN_SIGNAL"
     FADING = "FADING"
 
 
@@ -74,6 +75,7 @@ class SourceType(CaseInsensitiveEnum):
     COMMUNITY = "COMMUNITY"
     NEWS = "NEWS"
     RSS = "RSS"
+    FINANCE = "FINANCE"
 
 
 class DeliveryStatus(CaseInsensitiveEnum):

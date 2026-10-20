@@ -1,10 +1,10 @@
-"""Signal strength scoring.
+"""Signal strength scoring with Cross-Velocity Alpha Engine v3.
 
 Every weight and threshold lives in settings, so the engine is configurable
 rather than hardcoded. The scoring deliberately rewards velocity over size:
 
-    strength = growth + acceleration + recency + absolute + persistence
-               + cross-source confirmation, each normalized to its weight.
+     strength = growth + acceleration + recency + absolute + persistence
+                + cross-source confirmation, each normalized to its weight.
 
 A large flat object scores low. A small object with a sharp spike scores high.
 """
@@ -12,9 +12,15 @@ A large flat object scores low. A small object with a sharp spike scores high.
 from __future__ import annotations
 
 import math
+from typing import Sequence
 
 from app.core.config import settings
 from app.pipeline.detection.metrics import GrowthMetrics
+from app.pipeline.detection.cross_velocity import (
+    BullshitScrubber,
+    evaluate_cross_corroboration,
+    calculate_capital_backing_factor,
+)
 
 
 def _scale(value: float, ceiling: float) -> float:
@@ -81,11 +87,19 @@ def compute_strength(
     ai_priority_score: float = 0.0,
     substance_factor: float = 1.0,
     alpha_score: float = 0.0,
+    sources: Sequence[str] = (),
+    text_content: str = "",
+    sec_volume: float = 0.0,
+    polymarket_liquidity: float = 0.0,
 ) -> float:
     """Return strength in the 0..100 range.
 
     Weighted sum of components, combined with ai_priority_score boost, alpha intelligence score, cross-source confirmation, and substance factor.
     """
+    # 1. BullshitScrubber evaluation
+    scrub = BullshitScrubber.evaluate(text_content)
+    effective_substance = substance_factor * scrub["substance_factor"]
+
     base_total = (
         growth_score(metrics) * settings.weight_growth
         + velocity_score(metrics) * settings.weight_velocity
@@ -95,14 +109,24 @@ def compute_strength(
         + persistence_score(metrics) * settings.weight_persistence
         + cross_source_score(cross_source_count) * settings.weight_cross_source
     )
-    base_total *= staleness_penalty(metrics, window_minutes) * substance_factor
+    base_total *= staleness_penalty(metrics, window_minutes) * effective_substance
     
-    # Enhanced institutional intelligence scoring combining base strength, AI priority, alpha score weight, and cross source synergy
+    # 2. Capital Backing integration (SEC Form D/4 & Polymarket liquidity)
+    cap_factor = calculate_capital_backing_factor(sec_volume, polymarket_liquidity)
+    enhanced_alpha_score = max(alpha_score, cap_factor)
+
+    # 3. Enhanced institutional intelligence scoring
     ai_boost = ai_priority_score * 12.0
-    alpha_boost = (alpha_score / 100.0) * 15.0  # Institutional alpha boost
+    alpha_boost = (enhanced_alpha_score / 100.0) * 15.0  # Institutional alpha boost
     cross_bonus = min(cross_source_count * 3.5, 15.0) # Cross-source synergy bonus
     
     total = base_total + ai_boost + alpha_boost + cross_bonus
+
+    # 4. Multi-source cross-corroboration matrix (UNICORN_SIGNAL 2.0x strength multiplier)
+    corrob = evaluate_cross_corroboration(sources)
+    if corrob["is_unicorn"] or cross_source_count >= 2:
+        total *= 2.0
+
     return round(min(max(total, 0.0), 100.0), 2)
 
 
@@ -113,8 +137,13 @@ def strength_components(
     window_minutes: int = 15,
     ai_priority_score: float = 0.0,
     substance_factor: float = 1.0,
+    sources: Sequence[str] = (),
+    text_content: str = "",
+    sec_volume: float = 0.0,
+    polymarket_liquidity: float = 0.0,
 ) -> dict[str, float]:
     """Breakdown for the signal detail page."""
+    scrub = BullshitScrubber.evaluate(text_content)
     base_growth = round(growth_score(metrics) * settings.weight_growth, 2)
     base_velocity = round(velocity_score(metrics) * settings.weight_velocity, 2)
     base_acceleration = round(
@@ -130,6 +159,8 @@ def strength_components(
     )
     ai_boost = round(ai_priority_score * 15.0, 2)
     cross_bonus = round(min(cross_source_count * 3.0, 15.0), 2)
+    corrob = evaluate_cross_corroboration(sources)
+    
     return {
         "growth": base_growth,
         "velocity": base_velocity,
@@ -141,4 +172,7 @@ def strength_components(
         "ai_boost": ai_boost,
         "cross_bonus": cross_bonus,
         "staleness_factor": round(staleness_penalty(metrics, window_minutes), 3),
+        "substance_factor": round(scrub["substance_factor"], 3),
+        "capital_backing": calculate_capital_backing_factor(sec_volume, polymarket_liquidity),
+        "strength_multiplier": 2.0 if (corrob["is_unicorn"] or cross_source_count >= 2) else 1.0,
     }

@@ -7,6 +7,10 @@ from app.pipeline.collectors import ai_tech  # noqa: F401
 from app.pipeline.collectors.adapters import rss_news  # noqa: F401
 from app.pipeline.collectors.adapters import reddit  # noqa: F401
 from app.pipeline.collectors.adapters import arxiv  # noqa: F401
+from app.pipeline.collectors.adapters import sec_edgar  # noqa: F401
+from app.pipeline.collectors.adapters import uspto_patents  # noqa: F401
+from app.pipeline.collectors.adapters import huggingface  # noqa: F401
+from app.pipeline.collectors.adapters import polymarket  # noqa: F401
 from app.pipeline.collectors import devto  # noqa: F401
 from app.pipeline.collectors import google_news_trends  # noqa: F401
 from app.pipeline.collectors import google_trends  # noqa: F401
