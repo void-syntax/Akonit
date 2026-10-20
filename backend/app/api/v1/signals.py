@@ -18,7 +18,7 @@ from app.models import (
     SignalSnapshot,
 )
 from app.models.enums import SignalStatus
-from app.schemas.api import SignalDetail, SignalOut, SignalPage
+from app.schemas.api import IntelligenceBriefingOut, SignalDetail, SignalOut, SignalPage
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -357,6 +357,31 @@ async def signal_history(
             for s in rows
         ],
     }
+
+
+@router.get("/{signal_id}/briefing", response_model=IntelligenceBriefingOut)
+async def get_signal_briefing(signal_id: str, session: SessionDep):
+    """Get the autonomous deep intelligence briefing for a signal."""
+    from app.models.signals import IntelligenceBriefing
+    from app.ai.deep_briefing import synthesize_deep_briefing
+
+    signal = await _get_signal(session, signal_id)
+    briefing = (
+        await session.execute(
+            select(IntelligenceBriefing).where(IntelligenceBriefing.signal_id == signal_id)
+        )
+    ).scalar_one_or_none()
+
+    if briefing is None:
+        # Try synthesizing on demand
+        briefing = await synthesize_deep_briefing(session, signal_id)
+
+    if briefing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Intelligence briefing not available for this signal (requires critical/unicorn status or high strength).",
+        )
+    return briefing
 
 
 @router.post("/{signal_id}/save", response_model=SignalOut)

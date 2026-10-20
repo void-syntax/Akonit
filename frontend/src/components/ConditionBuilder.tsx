@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { CloseIcon, PlusIcon } from "@/components/icons";
 import type {
-  Condition,
+  RadarCondition as Condition,
   ConditionGroup,
   ConditionType,
   Country,
@@ -74,23 +74,24 @@ export function ConditionBuilder({
   const [countryQuery, setCountryQuery] = useState("");
   const [tagQuery, setTagQuery] = useState("");
 
-  const leaves = value.children.filter((c) => !isGroup(c));
+  const children = value.children || [];
+  const leaves = children.filter((c) => !isGroup(c));
 
   function addCondition() {
-    onChange({ ...value, children: [...value.children, makeCondition(kind)] });
+    onChange({ ...value, children: [...children, makeCondition(kind)] });
   }
 
   function updateCondition(index: number, next: Condition) {
     onChange({
       ...value,
-      children: value.children.map((c, i) => (i === index ? next : c)),
+      children: children.map((c, i) => (i === index ? next : c)),
     });
   }
 
   function removeCondition(index: number) {
     onChange({
       ...value,
-      children: value.children.filter((_, i) => i !== index),
+      children: children.filter((_, i) => i !== index),
     });
   }
 
@@ -157,7 +158,7 @@ export function ConditionBuilder({
           </p>
         )}
 
-        {value.children.map((child, index) =>
+        {children.map((child, index) =>
           isGroup(child) ? (
             <div key={`g${index}`} className="muted text-sm">
               nested group ({child.op})
@@ -234,7 +235,7 @@ function ConditionRow({
   onRemove,
 }: RowProps) {
   const selected = listValue(condition);
-  const numeric = NUMERIC_KINDS.includes(condition.type);
+  const numeric = NUMERIC_KINDS.includes(condition.type as any);
 
   function toggle(value: string) {
     const next = selected.includes(value)

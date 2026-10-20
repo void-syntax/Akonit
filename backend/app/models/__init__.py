@@ -27,7 +27,7 @@ from app.models.radars import (
     RadarConditionGroup,
     RadarSignal,
 )
-from app.models.signals import Signal, SignalSnapshot
+from app.models.signals import Signal, SignalSnapshot, IntelligenceBriefing
 from app.models.tags import CustomTag, SignalTag, Tag, TagAlias
 from app.models.taxonomy import Country, Source, SourceEvent
 from app.models.user import User, UserProfile
@@ -46,6 +46,7 @@ __all__ = [
     "SignalTag",
     "Signal",
     "SignalSnapshot",
+    "IntelligenceBriefing",
     "FailedSignal",
     "Radar",
     "RadarConditionGroup",

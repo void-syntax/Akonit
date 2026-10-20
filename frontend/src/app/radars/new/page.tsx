@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { ConditionBuilder } from "@/components/ConditionBuilder";
 import { api } from "@/lib/api";
 import type {
-  Condition,
+  RadarCondition,
   ConditionGroup,
   Country,
   NotificationFrequency,
@@ -105,7 +105,7 @@ export default function NewRadarPage() {
   function applyTemplate(template: (typeof TEMPLATES)[number]) {
     setName(template.name);
     setEmoji(template.emoji);
-    const children: (ConditionGroup | Condition)[] = [];
+    const children: (ConditionGroup | RadarCondition)[] = [];
     if (template.countries.length) {
       children.push({
         type: "COUNTRY",

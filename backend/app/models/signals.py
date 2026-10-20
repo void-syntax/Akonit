@@ -117,6 +117,30 @@ class Signal(Base):
     radar_matches: Mapped[list["RadarSignal"]] = relationship(  # noqa: F821
         back_populates="signal", cascade="all, delete-orphan"
     )
+    briefing: Mapped[IntelligenceBriefing | None] = relationship(
+        back_populates="signal", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class IntelligenceBriefing(Base):
+    """Executive Intelligence Briefing synthesized for critical and unicorn signals."""
+
+    __tablename__ = "intelligence_briefings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    signal_id: Mapped[str] = mapped_column(
+        ForeignKey("signals.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    core_thesis: Mapped[str] = mapped_column(Text)
+    alpha_potential: Mapped[str] = mapped_column(Text)
+    monetization_strategy: Mapped[str] = mapped_column(Text)
+    risk_analysis: Mapped[str] = mapped_column(Text)
+    sources_synthesized: Mapped[list] = mapped_column(JSON, default=list)
+    confidence_score: Mapped[float] = mapped_column(Float, default=0.85)
+    model_used: Mapped[str] = mapped_column(String(100), default="Akonit-Frankenstein-Synthesizer-v1.2")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    signal: Mapped[Signal] = relationship(back_populates="briefing")
 
 
 class SignalSnapshot(Base):

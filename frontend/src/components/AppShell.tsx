@@ -61,8 +61,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         if (active) setLive("offline");
       }
       try {
-        const stats = await api.stats();
-        if (active) setBreakout(stats.breakout);
+        const stats = await api.stats() as any;
+        if (active) setBreakout(stats.breakout ?? 0);
       } catch {
         /* counts are cosmetic here */
       }

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { ActivityChart } from "@/components/ActivityChart";
 import { SignalCard } from "@/components/SignalCard";
+import { SignalBriefing } from "@/components/SignalBriefing";
 import {
   BookmarkIcon,
   BoltIcon,
@@ -276,6 +277,18 @@ export default function SignalPage() {
             ))}
           </div>
         )}
+      </div>
+
+      <div style={{ marginBottom: "var(--s4)" }}>
+        <SignalBriefing
+          signalId={signal.id}
+          isCriticalOrUnicorn={
+            signal.status === "UNICORN_SIGNAL" ||
+            signal.status === "BREAKOUT" ||
+            signal.ai_priority === "critical" ||
+            signal.strength >= 75
+          }
+        />
       </div>
 
       <div className="section-title">Details</div>

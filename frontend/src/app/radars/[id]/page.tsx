@@ -143,7 +143,7 @@ export default function RadarDetailPage() {
           {radar.name}
         </div>
 
-        {summary && summary.parts.length > 0 && (
+        {summary && summary.parts && summary.parts.length > 0 && (
           <div className="summary" style={{ marginTop: "var(--s3)" }}>
             {summary.parts.map((part) => (
               <span key={part} className="summary-part">

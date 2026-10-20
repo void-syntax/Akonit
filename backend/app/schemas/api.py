@@ -113,6 +113,19 @@ class CustomTagOut(ORMModel):
     created_at: datetime
 
 
+class IntelligenceBriefingOut(ORMModel):
+    id: str
+    signal_id: str
+    core_thesis: str
+    alpha_potential: str
+    monetization_strategy: str
+    risk_analysis: str
+    sources_synthesized: list[str]
+    confidence_score: float
+    model_used: str
+    created_at: datetime
+
+
 # ------------------------------------------------------------ signals
 class SignalOut(ORMModel):
     id: str

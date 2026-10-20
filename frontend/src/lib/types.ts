@@ -1,4 +1,4 @@
-export type SignalStatus = "NEW" | "RISING" | "BREAKOUT" | "FADING";
+export type SignalStatus = "NEW" | "RISING" | "BREAKOUT" | "UNICORN_SIGNAL" | "FADING";
 
 export type SourceStatus =
   | "ACTIVE"
@@ -26,6 +26,7 @@ export interface Signal {
   source_url: string;
   thumbnail: string | null;
   cross_source_count: number;
+  cross_source_urls: string[];
   first_seen_at: string;
   last_seen_at: string;
   current_activity: number;
@@ -49,6 +50,19 @@ export interface Signal {
   ai_should_notify?: number;
   ai_noise_probability?: number;
   ai_trending_score?: number;
+}
+
+export interface IntelligenceBriefing {
+  id: string;
+  signal_id: string;
+  core_thesis: string;
+  alpha_potential: string;
+  monetization_strategy: string;
+  risk_analysis: string;
+  sources_synthesized: string[];
+  confidence_score: number;
+  model_used: string;
+  created_at: string;
 }
 
 export interface Snapshot {
@@ -113,24 +127,6 @@ export interface Tag {
   description: string | null;
 }
 
-export interface Radar {
-  id: string;
-  name: string;
-  emoji: string | null;
-  description: string | null;
-  countries: string[];
-  source_ids: string[];
-  tag_slugs: string[];
-  signal_threshold: number;
-  notification_frequency: NotificationFrequency;
-  notification_channels: string[];
-  is_active: boolean;
-  match_count: number;
-  active_signal_count: number;
-  last_matched_at: string | null;
-  created_at: string;
-}
-
 export interface CustomTag {
   id: string;
   name: string;
@@ -161,6 +157,53 @@ export interface CustomTagDraft {
   emoji?: string | null;
 }
 
+export interface RadarCondition {
+  id?: string;
+  type: string;
+  operator: string;
+  value: any;
+  unit?: string | null;
+}
+
+export interface ConditionGroup {
+  id?: string;
+  op?: string;
+  join?: "AND" | "OR";
+  is_exclude?: boolean;
+  conditions?: RadarCondition[];
+  children?: (RadarCondition | ConditionGroup)[];
+}
+
+export interface Radar {
+  id: string;
+  name: string;
+  emoji: string | null;
+  description: string | null;
+  countries: string[];
+  source_ids: string[];
+  tag_slugs: string[];
+  signal_threshold: number;
+  notification_frequency: NotificationFrequency;
+  notification_channels: string[];
+  is_active: boolean;
+  match_count: number;
+  active_signal_count: number;
+  last_matched_at: string | null;
+  created_at: string;
+}
+
+export interface RadarSummary extends Radar {
+  matches?: Signal[];
+  parts?: string[];
+}
+
+export interface ConditionOption {
+  type: string;
+  operators: string[];
+  unit_options: string[] | null;
+  description: string;
+}
+
 export interface Profile {
   display_name: string | null;
   timezone: string;
@@ -172,37 +215,21 @@ export interface Profile {
   default_countries: string[];
   default_sources: string[];
   default_tags: string[];
-  quiet_hours: { start: string; end: string; enabled: boolean } | null;
+  quiet_hours: Record<string, unknown> | null;
   theme: string;
 }
 
 export interface PublicStats {
-  total_signals: number;
-  active_signals: number;
-  breakout: number;
-  rising: number;
-  new: number;
-  fading: number;
-  sources: number;
-  countries: number;
-  last_signal_at: string | null;
+  active_radars: number;
+  signals_monitored: number;
+  total_signals?: number;
+  notifications_sent: number;
+  active_sources: number;
+  sources?: number;
+  countries?: number;
+  breakout?: number;
 }
 
-export interface RadarSummary {
-  radar_id: string;
-  parts: string[];
-  threshold: number;
-  frequency: NotificationFrequency;
-}
-
-export interface NotificationStatus {
-  linked: boolean;
-  chat_id: string | null;
-  bot_configured: boolean;
-  push_configured: boolean;
-}
-
-/* --- condition AST --- */
 export type ConditionType =
   | "COUNTRY"
   | "SOURCE"
@@ -212,42 +239,21 @@ export type ConditionType =
   | "ACTIVITY"
   | "AGE"
   | "STATUS"
-  | "STRENGTH";
-
-export type ConditionOperator =
-  | "IN"
-  | "NOT_IN"
-  | "GT"
-  | "GTE"
-  | "LT"
-  | "LTE"
-  | "EQ"
-  | "CONTAINS";
-
-export interface Condition {
-  type: ConditionType;
-  operator: ConditionOperator;
-  value?: unknown;
-  unit?: string | null;
-}
-
-export interface ConditionGroup {
-  op: "AND" | "OR" | "NOT";
-  children: (ConditionGroup | Condition)[];
-  is_exclude?: boolean;
-}
-
-export interface ConditionOption {
-  type: ConditionType;
-  operators: string[];
-  unit_options?: string[] | null;
-  description: string;
-}
+  | "STRENGTH"
+  | "VELOCITY"
+  | "DENSITY";
 
 export interface SourceHealthReport {
-  summary: Record<SourceStatus, number>;
-  sources: (SourceInfo & {
-    consecutive_failures: number;
-    notes: string | null;
-  })[];
+  sources: SourceInfo[];
+  ok_count: number;
+  failed_count: number;
+}
+
+export interface NotificationStatus {
+  enabled: boolean;
+  supported: boolean;
+  push_configured?: boolean;
+  bot_configured?: boolean;
+  linked?: boolean;
+  chat_id?: string | null;
 }

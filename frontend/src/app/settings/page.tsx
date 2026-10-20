@@ -268,7 +268,7 @@ export default function SettingsPage() {
             <input
               id="qstart"
               type="time"
-              value={quiet.start}
+              value={String(quiet.start || "")}
               disabled={busy || !quiet.enabled}
               style={{ maxWidth: 130 }}
               onChange={(e) =>
@@ -278,7 +278,7 @@ export default function SettingsPage() {
             <span className="dim">to</span>
             <input
               type="time"
-              value={quiet.end}
+              value={String(quiet.end || "")}
               disabled={busy || !quiet.enabled}
               style={{ maxWidth: 130 }}
               onChange={(e) =>

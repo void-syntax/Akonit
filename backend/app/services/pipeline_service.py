@@ -431,6 +431,15 @@ async def _process_event(
         captured_at=aware(event.observed_at),
         rank=event.rank,
     )
+
+    # --- Autonomous Deep Briefing Agent Hook (Frankenstein feature) ---
+    try:
+        if signal.status.value in ["UNICORN_SIGNAL", "BREAKOUT"] or signal.ai_priority == "critical" or signal.strength >= 75.0:
+            from app.ai.deep_briefing import synthesize_deep_briefing
+            await synthesize_deep_briefing(session, signal.id)
+    except Exception as briefing_exc:
+        logger.warning("Automated deep briefing synthesis failed for signal %s: %r", signal.id, briefing_exc)
+
     source_event.signal_id = signal.id
 
     candidates.insert(
