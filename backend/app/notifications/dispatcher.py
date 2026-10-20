@@ -32,6 +32,7 @@ from app.models.enums import (
 from app.notifications.formatter import format_signal_alert, format_web_push
 from app.notifications.telegram import TelegramClient
 from app.notifications.webpush import send_web_push
+from app.notifications.webhook_dispatcher import dispatch_webhook_notification
 
 logger = get_logger(__name__)
 
@@ -167,6 +168,8 @@ async def flush_deliveries(session: AsyncSession, limit: int = 50) -> dict:
             try:
                 if delivery.channel == NotificationChannel.TELEGRAM:
                     await _send_telegram(session, delivery, signal, telegram)
+                elif delivery.channel in (NotificationChannel.DISCORD, NotificationChannel.SLACK, NotificationChannel.WEBHOOK):
+                    await dispatch_webhook_notification(session, delivery, signal)
                 else:
                     await _send_push(session, delivery, signal)
                 if delivery.status == DeliveryStatus.PENDING:

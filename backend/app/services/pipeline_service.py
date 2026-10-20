@@ -434,11 +434,42 @@ async def _process_event(
 
     # --- Autonomous Deep Briefing Agent Hook (Frankenstein feature) ---
     try:
-        if signal.status.value in ["UNICORN_SIGNAL", "BREAKOUT"] or signal.ai_priority == "critical" or signal.strength >= 75.0:
+        is_high_alpha = (
+            signal.status.value in ["UNICORN_SIGNAL", "BREAKOUT"]
+            or signal.ai_priority == "critical"
+            or signal.strength >= 75.0
+        )
+        if is_high_alpha:
             from app.ai.deep_briefing import synthesize_deep_briefing
             await synthesize_deep_briefing(session, signal.id)
+
+            # Instant Webhook Dispatch for High-Alpha Signals
+            from app.notifications.dispatcher import notify_matches, flush_deliveries
+            from app.models import Radar, RadarSignal
+            # Find matching radars or instantly create delivery records for high-alpha webhook dispatch
+            radars = (await session.execute(select(Radar).where(Radar.is_active.is_(True)))).scalars().all()
+            for radar in radars:
+                # Check if notification channels include discord, slack, or webhook
+                channels = radar.notification_channels or []
+                if any(ch in channels for ch in ["DISCORD", "SLACK", "WEBHOOK"]):
+                    # Ensure a RadarSignal match exists
+                    existing_match = (await session.execute(
+                        select(RadarSignal).where(RadarSignal.radar_id == radar.id, RadarSignal.signal_id == signal.id)
+                    )).scalar_one_or_none()
+                    if not existing_match:
+                        match = RadarSignal(
+                            radar_id=radar.id,
+                            signal_id=signal.id,
+                        )
+                        session.add(match)
+                        await session.flush()
+            await session.commit()
+            
+            # Trigger notification dispatching for due items
+            await notify_matches(session, signal_ids=[signal.id])
+            await flush_deliveries(session)
     except Exception as briefing_exc:
-        logger.warning("Automated deep briefing synthesis failed for signal %s: %r", signal.id, briefing_exc)
+        logger.warning("Automated deep briefing & high-alpha webhook dispatch failed for signal %s: %r", signal.id, briefing_exc)
 
     source_event.signal_id = signal.id
 

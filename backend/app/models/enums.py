@@ -58,6 +58,9 @@ class NotificationFrequency(CaseInsensitiveEnum):
 class NotificationChannel(CaseInsensitiveEnum):
     WEB_PUSH = "WEB_PUSH"
     TELEGRAM = "TELEGRAM"
+    DISCORD = "DISCORD"
+    SLACK = "SLACK"
+    WEBHOOK = "WEBHOOK"
 
 
 class SourceStatus(CaseInsensitiveEnum):
