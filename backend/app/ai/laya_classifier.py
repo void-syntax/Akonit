@@ -8,6 +8,8 @@ actionable tech and investment signals.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import math
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
@@ -106,7 +108,9 @@ def _get_router():
     try:
         from laya import Router  # type: ignore[import-untyped]
         logger.info("Loading Laya AI router...")
-        router = Router(preload=False)
+        # Keep only one checkpoint resident; Laya stays lazily loaded on first
+        # classification so importing the API never downloads/loads a model.
+        router = Router(preload=False, max_loaded=1, device="cpu")
         logger.info("Laya AI router ready")
         return router
     except ImportError:
@@ -166,7 +170,7 @@ def _classify_sync(
 
             priority = priority_ans.get("choice", "watch")
             priority_probs = priority_ans.get("probs", {})
-            priority_score = priority_probs.get(priority, 0.5)
+            priority_score = _finite_float(priority_probs.get(priority), 0.5, 0.0, 1.0)
 
             actionability_choice = action_ans.get("choice", "actionable")
             if actionability_choice == "fluff" or is_thin:
@@ -184,23 +188,25 @@ def _classify_sync(
                     priority_score = max(priority_score, 0.65)
 
             category = category_ans.get("choice", "other")
-            should_notify = notify_ans.get("noul", 0.3)
+            should_notify = _finite_float(notify_ans.get("noul"), 0.3, 0.0, 1.0)
             if actionability_choice == "fluff":
                 should_notify = min(should_notify, 0.1)
 
-            noise_probability = noise_ans.get("noul", 0.3)
+            noise_probability = _finite_float(noise_ans.get("noul"), 0.3, 0.0, 1.0)
             if actionability_choice == "fluff" or is_thin:
                 noise_probability = max(noise_probability, 0.9)
 
-            trending_score = (trending_ans.get("score", 1.0) or 1.0) / 2.0
-            alpha_score = float(alpha_ans.get("score", strength) or strength)
-            monetization_potential = float(monet_ans.get("score", strength * 0.8) or (strength * 0.8))
-            actionability_potential = float(actionability_pot_ans.get("score", strength) or strength)
-            risk_reward_ratio = float(risk_reward_ans.get("score", 3.5) or 3.5)
+            trending_score = _finite_float(trending_ans.get("score"), 1.0, 0.0, 2.0) / 2.0
+            alpha_score = _finite_float(alpha_ans.get("score"), 0.0, 0.0, 100.0)
+            monetization_potential = _finite_float(monet_ans.get("score"), 0.0, 0.0, 100.0)
+            actionability_potential = _finite_float(actionability_pot_ans.get("score"), strength, 0.0, 100.0)
+            risk_reward_ratio = _finite_float(risk_reward_ans.get("score"), 3.5, 0.0, 100.0)
             if risk_reward_ratio > 10.0:
                 risk_reward_ratio = max(1.0, risk_reward_ratio / 10.0)
 
-            breakout_probability = min(max((strength / 100.0) * (1.0 - noise_probability), 0.0), 1.0)
+            # This is a heuristic indicator, not a calibrated real-world
+            # probability. Keep the field conservative until outcome labels exist.
+            breakout_probability = min(max(trending_score * (1.0 - noise_probability), 0.0), 1.0)
             model_used = result.get("routing", {}).get("model", "unknown")
 
             return LayaClassification(
@@ -242,40 +248,40 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
             model_used="fallback-thin",
         )
 
-    if strength >= 70 or status == "BREAKOUT":
+    if strength >= 70 or status.lower() in {"breakout", "unicorn_signal"}:
         priority = "critical"
         priority_score = 0.85
         should_notify = 0.8
-        alpha_score = max(strength, 85.0)
-        monetization_potential = 80.0
-        breakout_probability = 0.9
+        alpha_score = 0.0  # No investment value can be inferred from trend strength alone.
+        monetization_potential = 0.0
+        breakout_probability = 0.0  # Not calibrated; avoid presenting a fabricated probability.
         actionability_potential = max(strength, 85.0)
         risk_reward_ratio = 6.5
     elif strength >= 45 or status == "RISING":
         priority = "watch"
         priority_score = 0.65
         should_notify = 0.4
-        alpha_score = max(strength, 60.0)
-        monetization_potential = 55.0
-        breakout_probability = 0.5
+        alpha_score = 0.0
+        monetization_potential = 0.0
+        breakout_probability = 0.0
         actionability_potential = max(strength, 60.0)
         risk_reward_ratio = 4.0
     elif status == "NEW":
         priority = "watch"
         priority_score = 0.5
         should_notify = 0.2
-        alpha_score = max(strength, 40.0)
-        monetization_potential = 40.0
-        breakout_probability = 0.25
+        alpha_score = 0.0
+        monetization_potential = 0.0
+        breakout_probability = 0.0
         actionability_potential = max(strength, 40.0)
         risk_reward_ratio = 3.0
     else:
         priority = "noise" if strength < 30 else "watch"
         priority_score = 0.4
         should_notify = 0.1
-        alpha_score = strength
-        monetization_potential = 20.0
-        breakout_probability = 0.1
+        alpha_score = 0.0
+        monetization_potential = 0.0
+        breakout_probability = 0.0
         actionability_potential = strength
         risk_reward_ratio = 2.0
 
@@ -284,7 +290,7 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         priority_score=priority_score,
         category="other",
         should_notify=should_notify,
-        noise_probability=0.3 if priority != "noise" else 0.7,
+        noise_probability=0.5 if priority != "noise" else 0.8,
         trending_score=min(strength / 100.0, 1.0),
         alpha_score=alpha_score,
         monetization_potential=monetization_potential,
@@ -293,6 +299,17 @@ def _fallback_classification(strength: float, growth: float, status: str, is_thi
         risk_reward_ratio=risk_reward_ratio,
         model_used="fallback",
     )
+
+
+def _finite_float(value: object, default: float, minimum: float, maximum: float) -> float:
+    """Clamp untrusted model output and reject NaN/Infinity."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    return min(max(parsed, minimum), maximum)
 
 
 async def classify_signal(
@@ -305,16 +322,20 @@ async def classify_signal(
 ) -> LayaClassification:
     """Async wrapper with cache-aside pattern for Laya classifications."""
     from app.core.cache import cache_aside
-    import hashlib
 
-    cache_key = f"laya:classify:{hashlib.md5(f'{title}:{description}:{source_id}:{growth}:{strength}:{status}'.encode('utf-8')).hexdigest()}"
+    # Cache only the text classification. Growth/strength/status change on
+    # every collection pass and must never be frozen into a one-hour result.
+    text_key = hashlib.sha256(
+        f"{title[:500]}\0{description[:500]}\0{source_id}".encode("utf-8")
+    ).hexdigest()
+    cache_key = f"laya:classify:v2:{text_key}"
 
     async def _fetch():
         loop = asyncio.get_running_loop()
         safe_growth = float(growth or 0.0)
         safe_strength = float(strength or 0.0)
         safe_status = str(status or "new")
-        return await loop.run_in_executor(
+        result = await loop.run_in_executor(
             _executor,
             _classify_sync,
             title,
@@ -324,12 +345,11 @@ async def classify_signal(
             safe_strength,
             safe_status,
         )
+        return result
 
-    return await cache_aside(cache_key, _fetch, ttl_seconds=3600)
+    return await cache_aside(cache_key, _fetch, ttl_seconds=24 * 3600)
 
 
 async def warm_up() -> bool:
-    """Pre-load the Laya checkpoint at startup. Call once from app lifespan."""
-    loop = asyncio.get_running_loop()
-    router = await loop.run_in_executor(_executor, _get_router)
-    return router is not None
+    """Compatibility no-op: load lazily on first opted-in classification."""
+    return False

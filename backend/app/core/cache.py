@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import pickle
+import random
 import time
 from typing import Any, Callable, TypeVar, Awaitable
 
@@ -57,6 +58,11 @@ async def close_cache() -> None:
             _redis_client = None
 
 
+async def clear_memory_cache() -> None:
+    """Clear in-memory cache (useful for testing)."""
+    _memory_cache.clear()
+
+
 async def cache_get(key: str) -> Any | None:
     """Get value from cache (Redis with JSON/pickle or fallback to memory)."""
     client = await get_redis_client()
@@ -98,7 +104,10 @@ async def cache_get(key: str) -> Any | None:
 
 
 async def cache_set(key: str, value: Any, ttl_seconds: int = 300) -> None:
-    """Set value in cache with TTL."""
+    """Set value in cache with TTL and jitter to prevent cache stampedes."""
+    jitter = random.randint(-int(ttl_seconds * 0.1), int(ttl_seconds * 0.1)) if ttl_seconds > 10 else 0
+    actual_ttl = max(1, ttl_seconds + jitter)
+
     client = await get_redis_client()
     if client is not None:
         try:
@@ -106,7 +115,7 @@ async def cache_set(key: str, value: Any, ttl_seconds: int = 300) -> None:
                 serialized = json.dumps(value, default=str)
             except Exception:
                 serialized = pickle.dumps(value)
-            await client.set(key, serialized, ex=ttl_seconds)
+            await client.set(key, serialized, ex=actual_ttl)
             return
         except Exception as exc:
             logger.warning("cache: redis set failed for key %s (%s)", key, exc)
@@ -124,7 +133,7 @@ async def cache_set(key: str, value: Any, ttl_seconds: int = 300) -> None:
             for k in list(_memory_cache.keys())[:excess]:
                 _memory_cache.pop(k, None)
 
-    _memory_cache[key] = (value, now + ttl_seconds)
+    _memory_cache[key] = (value, now + actual_ttl)
 
 
 async def cache_delete(key: str) -> None:

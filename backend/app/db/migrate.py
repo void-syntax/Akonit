@@ -20,6 +20,14 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "default_tags": "JSON DEFAULT '[]'",
         "quiet_hours": "JSON",
         "theme": "VARCHAR(16) DEFAULT 'dark'",
+        "telegram_chat_id": "VARCHAR(64)",
+        "telegram_alerts_enabled": "BOOLEAN DEFAULT 0",
+        "onboarded": "BOOLEAN DEFAULT 0",
+        "default_frequency": "VARCHAR(32) DEFAULT 'instant'",
+        "push_subscriptions": "JSON DEFAULT '[]'",
+        "display_name": "VARCHAR(120)",
+        "timezone": "VARCHAR(64) DEFAULT 'UTC'",
+        "language": "VARCHAR(8) DEFAULT 'en'",
     },
     "custom_tags": {
         "aliases": "JSON DEFAULT '[]'",
@@ -31,7 +39,10 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "density_count": "INTEGER DEFAULT 1",
         "matched_at": "TIMESTAMP",
         "tags_updated_at": "TIMESTAMP",
+        "expires_at": "TIMESTAMP",
+        "content_hash": "VARCHAR(64)",
     },
+    "source_events": {"text_hash": "VARCHAR(16)"},
 }
 
 
@@ -61,5 +72,13 @@ async def apply_migrations(engine: AsyncEngine) -> list[str]:
                     text(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {ddl}')
                 )
                 applied.append(f"{table}.{column}")
+
+        # Keep the hash lookup cheap once event history grows. Index creation is
+        # idempotent and does not rebuild or rewrite the existing SQLite table.
+        if "source_events" in tables and "text_hash" in MIGRATIONS["source_events"]:
+            await conn.execute(text(
+                'CREATE INDEX IF NOT EXISTS "ix_source_events_text_hash" '
+                'ON "source_events" ("text_hash")'
+            ))
 
     return applied

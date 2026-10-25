@@ -255,7 +255,15 @@ async def match_signal_to_radars(
     user_ids: list[str] | None = None,
 ) -> list[MatchOutcome]:
     """Check one signal against every active radar that uses its source."""
-    statement = select(Radar).where(Radar.is_active.is_(True))
+    statement = (
+        select(Radar)
+        .where(Radar.is_active.is_(True))
+        .options(
+            selectinload(Radar.condition_groups).selectinload(
+                RadarConditionGroup.conditions
+            )
+        )
+    )
     if user_ids:
         statement = statement.where(Radar.user_id.in_(user_ids))
     radars = (await session.execute(statement)).scalars().unique().all()
@@ -276,20 +284,23 @@ async def match_signal_to_radars(
     }
 
     outcomes: list[MatchOutcome] = []
+    now = datetime.now(UTC)
+    view = RadarView(signal)
     for radar in radars:
         # The pair matters: a signal already matched by radar A must still be
         # evaluated against radar B.
         if (radar.id, signal.id) in existing:
             continue
-        matched, reason = await radar_matches_signal(session, radar, signal)
+        # Evaluate condition tree using already-loaded groups (no extra query).
+        matched, reason = _evaluate_radar_in_memory(radar, signal, view)
         if not matched:
             continue
 
         session.add(
-            RadarSignal(radar_id=radar.id, signal_id=signal.id, matched_at=datetime.now(UTC))
+            RadarSignal(radar_id=radar.id, signal_id=signal.id, matched_at=now)
         )
         radar.match_count += 1
-        radar.last_matched_at = datetime.now(UTC)
+        radar.last_matched_at = now
         outcomes.append(
             MatchOutcome(
                 radar_id=radar.id,
@@ -303,6 +314,23 @@ async def match_signal_to_radars(
     return outcomes
 
 
+def _evaluate_radar_in_memory(
+    radar: Radar, signal: Signal, view: RadarView
+) -> tuple[bool, str]:
+    """Evaluate one radar's condition tree against one signal using
+    already-loaded relationship data (no additional DB queries)."""
+    if not radar.is_active:
+        return False, "radar_inactive"
+    if signal.strength < radar.signal_threshold:
+        return False, "below_threshold"
+
+    # radar.condition_groups is already eagerly loaded
+    ast = groups_to_ast(list(radar.condition_groups))
+    if evaluate_group(ast, view):
+        return True, "matched"
+    return False, "conditions_not_met"
+
+
 async def match_batch(
     session: AsyncSession,
     *,
@@ -313,27 +341,96 @@ async def match_batch(
     Only looking at first_seen_at would miss the most valuable case: a signal
     that was slow at first and only later started to take off. Those have an
     old first_seen_at but a fresh last_seen_at, so both windows are scanned.
+
+    N+1 elimination: all active radars (with their condition groups + conditions)
+    and all existing radar-signal match pairs for the candidate signals are loaded
+    in bulk *before* the signal loop — each signal is then evaluated entirely in
+    memory with no additional DB round-trips.
     """
     now = datetime.now(UTC)
-    since_new = now - timedelta(minutes=lookback_minutes)
-    since_changed = now - timedelta(minutes=lookback_minutes)
+    since = now - timedelta(minutes=lookback_minutes)
 
     statement = (
         select(Signal)
         .where(
-            (Signal.first_seen_at >= since_new)
+            (Signal.first_seen_at >= since)
             | (Signal.matched_at.is_(None))
-            | (Signal.matched_at <= since_changed)
+            | (Signal.matched_at <= since)
         )
         .where(Signal.status != SignalStatus.FADING)
         .order_by(Signal.first_seen_at.desc())
         .limit(500)
     )
     signals = (await session.execute(statement)).scalars().unique().all()
+    if not signals:
+        return []
+
+    signal_ids = [s.id for s in signals]
+
+    # ── Bulk-load 1: all active radars with their full condition tree ──────────
+    radars: list[Radar] = (
+        (
+            await session.execute(
+                select(Radar)
+                .where(Radar.is_active.is_(True))
+                .options(
+                    selectinload(Radar.condition_groups).selectinload(
+                        RadarConditionGroup.conditions
+                    )
+                )
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+
+    # ── Bulk-load 2: all existing (radar_id, signal_id) pairs for these signals
+    existing_pairs: set[tuple[str, str]] = {
+        (rs.radar_id, rs.signal_id)
+        for rs in (
+            await session.execute(
+                select(RadarSignal).where(RadarSignal.signal_id.in_(signal_ids))
+            )
+        )
+        .scalars()
+        .all()
+    }
+
+    # ── Pre-build ASTs once per radar (not once per signal × radar) ───────────
+    radar_asts = {radar.id: groups_to_ast(list(radar.condition_groups)) for radar in radars}
 
     outcomes: list[MatchOutcome] = []
+
     for signal in signals:
-        outcomes.extend(await match_signal_to_radars(session, signal))
+        view = RadarView(signal)
+        for radar in radars:
+            if (radar.id, signal.id) in existing_pairs:
+                continue
+            if not radar.is_active:
+                continue
+            if signal.strength < radar.signal_threshold:
+                continue
+            ast = radar_asts[radar.id]
+            if not evaluate_group(ast, view):
+                continue
+
+            session.add(
+                RadarSignal(radar_id=radar.id, signal_id=signal.id, matched_at=now)
+            )
+            # Track new pairs so the same signal isn't double-added
+            existing_pairs.add((radar.id, signal.id))
+            radar.match_count += 1
+            radar.last_matched_at = now
+            outcomes.append(
+                MatchOutcome(
+                    radar_id=radar.id,
+                    signal_id=signal.id,
+                    is_new=True,
+                    notify=radar.notification_frequency != NotificationFrequency.OFF,
+                    reason="matched",
+                )
+            )
         signal.matched_at = now
 
     if signals:

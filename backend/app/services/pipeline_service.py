@@ -115,10 +115,28 @@ async def run_collection_cycle(
             for adapter in all_adapters()
             if not source_ids or adapter.source_id in source_ids
         ]
+        # Honor each adapter's cadence. Keep a per-process schedule so frequent
+        # worker ticks do not hammer slow-changing public sources.
+        now_monotonic = time.monotonic()
+        next_due = getattr(run_collection_cycle, "_next_due", {})
+        adapters = [
+            adapter
+            for adapter in adapters
+            if now_monotonic >= next_due.get(adapter.source_id, 0.0)
+        ]
+        run_collection_cycle._next_due = next_due
+        if not adapters:
+            return stats
+        for adapter in adapters:
+            next_due[adapter.source_id] = now_monotonic + max(
+                adapter.collect_interval_seconds, settings.collect_interval_seconds
+            )
+        run_collection_cycle._next_due = next_due
+
         ctx = FetchContext(
             countries=countries or [],
             keywords=keywords or [],
-            limit=limit_per_source,
+            limit=min(limit_per_source, settings.collection_max_events_per_source),
         )
 
         client = HttpClient()
@@ -202,9 +220,9 @@ async def _store_result(
         if not e.cluster_id:
             continue
         try:
-            event_hash = int((e.fingerprint or "")[:16], 16)
+            event_hash = int(e.text_hash or "", 16)
         except ValueError:
-            event_hash = 0
+            event_hash = simhash(e.raw_title or "")
         candidates.append(
             ClusterCandidate(
                 cluster_id=e.cluster_id,
@@ -221,16 +239,27 @@ async def _store_result(
     # Pre-compute cluster IDs for this batch so we can load all matching
     # signals in a single query instead of one per event (N+1 → 1).
     batch_cluster_ids: set[str] = set()
+    decisions = []
     for event in result.events:
-        cluster_id = find_cluster(
+        decision = find_cluster(
             event.title,
             event.description,
             event.url,
             event.source_id,
             event.external_id,
             candidates,
-        ).cluster_id
-        batch_cluster_ids.add(cluster_id)
+        )
+        decisions.append(decision)
+        batch_cluster_ids.add(decision.cluster_id)
+        # Include earlier batch entries so repeated topics from this same
+        # response are clustered deterministically without extra DB queries.
+        candidates.insert(0, ClusterCandidate(
+            cluster_id=decision.cluster_id,
+            source_id=event.source_id,
+            url=event.url,
+            simhash=simhash(f"{event.title} {event.description}"),
+            observed_at=aware(event.observed_at).timestamp(),
+        ))
 
     existing_signals: dict[str, Signal] = {}
     if batch_cluster_ids:
@@ -245,13 +274,13 @@ async def _store_result(
         )
         existing_signals = {s.cluster_id: s for s in rows}
 
-    for event in result.events:
+    for event, decision in zip(result.events, decisions):
         try:
             # A savepoint keeps one bad event from rolling back the whole batch.
             async with session.begin_nested():
                 await _process_event(
                     session, event, candidates, matcher, stats, seen_clusters,
-                    existing_signals,
+                    existing_signals, decision,
                 )
             stats.events_stored += 1
         except Exception as exc:  # one bad event must not kill the batch, and if it fails 3 times or generally during pipeline processing, send to DLQ
@@ -259,7 +288,10 @@ async def _store_result(
             stats.errors.append(f"{source_id} event: {exc}")
             try:
                 from app.pipeline.dlq import DeadLetterQueue
-                await DeadLetterQueue.enqueue_failed(session, event, exc, source=source_id)
+                from app.db.session import SessionLocal
+                async with SessionLocal() as dlq_session:
+                    await DeadLetterQueue.enqueue_failed(dlq_session, event, exc, source=source_id)
+                    await dlq_session.commit()
             except Exception as dlq_exc:
                 logger.exception("Failed to enqueue into DLQ: %r", dlq_exc)
 
@@ -272,7 +304,18 @@ async def _process_event(
     stats: PipelineStats,
     seen_clusters: set[str],
     existing_signals: dict[str, "Signal"] | None = None,
+    decision=None,
 ) -> None:
+    event_time = aware(event.published_at or event.observed_at)
+    if _is_stale(event_time):
+        logger.debug(
+            "dropping stale event (%s): published %s",
+            event.external_id,
+            event_time.isoformat(),
+        )
+        signals_noise_filtered_total.labels(reason="stale").inc()
+        return
+
     canonical_url = canonicalize_url(event.url)
     fp = fingerprint(event.source_id, event.external_id)
     content_hash = simhash(f"{event.title} {event.description}")
@@ -282,22 +325,28 @@ async def _process_event(
     det_hash = compute_content_hash(event.title, event.source_id, event.published_at or event.observed_at)
     existing_by_hash = (
         await session.execute(
-            select(Signal).where(Signal.content_hash == det_hash)
+            select(Signal)
+            .where(Signal.content_hash == det_hash)
+            .order_by(Signal.last_seen_at.desc())
+            .limit(1)
         )
-    ).scalar_one_or_none()
+    ).scalars().first()
 
-    if existing_by_hash is not None:
-        logger.debug("silently skipping duplicate signal by content_hash: %s", det_hash)
-        return
-
-    decision = find_cluster(
-        event.title,
-        event.description,
-        event.url,
-        event.source_id,
-        event.external_id,
-        candidates,
-    )
+    if decision is None:
+        decision = find_cluster(
+            event.title,
+            event.description,
+            event.url,
+            event.source_id,
+            event.external_id,
+            candidates,
+        )
+    # The content hash is an upsert key, not a reason to skip observation.
+    # Repeated observations carry fresh activity and must update the same row.
+    if existing_by_hash is not None and existing_by_hash.cluster_id:
+        decision.cluster_id = existing_by_hash.cluster_id
+        decision.is_new_cluster = False
+        decision.reason = "content_hash"
 
     source_event = SourceEvent(
         source_id=event.source_id,
@@ -309,6 +358,7 @@ async def _process_event(
         raw_payload=event.metadata or {},
         canonical_url=canonical_url,
         fingerprint=fp,
+        text_hash=f"{content_hash:016x}",
         cluster_id=decision.cluster_id,
         country_code=event.country_code,
         rank=event.rank,
@@ -320,6 +370,9 @@ async def _process_event(
     # Use the pre-loaded dict when available (avoids N+1 queries).
     if existing_signals is not None:
         signal = existing_signals.get(decision.cluster_id)
+        if signal is None and existing_by_hash is not None:
+            signal = existing_by_hash
+            existing_signals[decision.cluster_id] = signal
     else:
         signal = (
             (
@@ -339,15 +392,7 @@ async def _process_event(
         # happened to notice it. Age is the single strongest filter for a radar
         # that only cares about what is starting now, and a stale item that
         # looks brand new is worse than no item at all.
-        first_seen = aware(event.published_at or event.observed_at)
-        if _is_stale(first_seen):
-            logger.debug(
-                "dropping stale event (%s): published %s",
-                event.external_id,
-                first_seen.isoformat(),
-            )
-            signals_noise_filtered_total.labels(reason="stale").inc()
-            return
+        first_seen = event_time
 
         signal = Signal(
             cluster_id=decision.cluster_id,
@@ -373,46 +418,56 @@ async def _process_event(
         # Check text substance and thin content / noise filtering
         text_content = f"{event.title} {event.description or ''}".strip()
         words = text_content.split()
-        if len(words) < 6:
-            logger.debug("dropping thin content / low substance event (%s): words=%d", event.external_id, len(words))
+        if len(words) < 3:
+            logger.debug("dropping empty/thin event (%s): words=%d", event.external_id, len(words))
             signals_noise_filtered_total.labels(reason="thin_content").inc()
             return
 
         # --- Hook Laya AI Classification ---
-        try:
-            from app.ai.laya_classifier import classify_signal
-            classification = await classify_signal(
-                title=event.title,
-                description=event.description or "",
-                source_id=event.source_id,
-                growth=signal.growth,
-                strength=signal.strength,
-                status=signal.status.value if hasattr(signal.status, "value") else str(signal.status),
-            )
-            signal.ai_priority = classification["priority"]
-            signal.ai_priority_score = classification["priority_score"]
-            signal.ai_category = classification["category"]
-            signal.ai_should_notify = classification["should_notify"]
-            signal.ai_noise_probability = classification["noise_probability"]
-            signal.ai_trending_score = classification["trending_score"]
-            signal.ai_classified_at = datetime.now(UTC)
+        if settings.ai_classification_enabled and len(words) >= 6:
+            try:
+                from app.ai.laya_classifier import classify_signal
+                classification = await classify_signal(
+                    title=event.title,
+                    description=event.description or "",
+                    source_id=event.source_id,
+                    growth=signal.growth,
+                    strength=signal.strength,
+                    status=signal.status.value if hasattr(signal.status, "value") else str(signal.status),
+                )
+                signal.ai_priority = classification["priority"]
+                signal.ai_priority_score = classification["priority_score"]
+                signal.ai_category = classification["category"]
+                signal.ai_should_notify = classification["should_notify"]
+                signal.ai_noise_probability = classification["noise_probability"]
+                signal.ai_trending_score = classification["trending_score"]
+                signal.ai_classified_at = datetime.now(UTC)
 
-            # Smart noise filtering: raise noise threshold (> 0.75 noise probability or priority == noise)
-            if signal.ai_noise_probability > 0.75 or signal.ai_priority == "noise":
-                logger.debug("dropping high-probability noise event (%s): noise_prob=%.2f", event.external_id, signal.ai_noise_probability)
-                signals_noise_filtered_total.labels(reason="ai_noise").inc()
-                return
-        except Exception as laya_exc:
-            logger.debug("Laya classification during ingestion failed: %r", laya_exc)
+                # Drop only when the optional classifier is explicitly enabled.
+                if signal.ai_noise_probability > 0.75 or signal.ai_priority == "noise":
+                    logger.debug("dropping high-probability noise event (%s): noise_prob=%.2f", event.external_id, signal.ai_noise_probability)
+                    signals_noise_filtered_total.labels(reason="ai_noise").inc()
+                    return
+            except Exception as laya_exc:
+                logger.debug("Laya classification during ingestion failed: %r", laya_exc)
 
         session.add(signal)
         await session.flush()
+        if existing_signals is not None:
+            existing_signals[decision.cluster_id] = signal
         seen_clusters.add(decision.cluster_id)
         stats.signals_created += 1
         signals_ingested_total.labels(source_id=event.source_id).inc()
     else:
         signal.previous_activity = signal.current_activity
-        signal.current_activity = max(signal.current_activity, event.activity)
+        # Compare like-for-like measurements. Keeping a historical maximum
+        # suppresses real slowdowns and makes cumulative counters look like
+        # persistent growth; a different source/metric must not overwrite the
+        # signal's existing measurement with an incomparable unit.
+        if signal.activity_metric == event.activity_metric:
+            signal.current_activity = event.activity
+        else:
+            signal.current_activity = max(signal.current_activity, event.activity)
         signal.last_seen_at = aware(event.observed_at)
         stats.signals_updated += 1
 
@@ -432,44 +487,9 @@ async def _process_event(
         rank=event.rank,
     )
 
-    # --- Autonomous Deep Briefing Agent Hook (Frankenstein feature) ---
-    try:
-        is_high_alpha = (
-            signal.status.value in ["UNICORN_SIGNAL", "BREAKOUT"]
-            or signal.ai_priority == "critical"
-            or signal.strength >= 75.0
-        )
-        if is_high_alpha:
-            from app.ai.deep_briefing import synthesize_deep_briefing
-            await synthesize_deep_briefing(session, signal.id)
-
-            # Instant Webhook Dispatch for High-Alpha Signals
-            from app.notifications.dispatcher import notify_matches, flush_deliveries
-            from app.models import Radar, RadarSignal
-            # Find matching radars or instantly create delivery records for high-alpha webhook dispatch
-            radars = (await session.execute(select(Radar).where(Radar.is_active.is_(True)))).scalars().all()
-            for radar in radars:
-                # Check if notification channels include discord, slack, or webhook
-                channels = radar.notification_channels or []
-                if any(ch in channels for ch in ["DISCORD", "SLACK", "WEBHOOK"]):
-                    # Ensure a RadarSignal match exists
-                    existing_match = (await session.execute(
-                        select(RadarSignal).where(RadarSignal.radar_id == radar.id, RadarSignal.signal_id == signal.id)
-                    )).scalar_one_or_none()
-                    if not existing_match:
-                        match = RadarSignal(
-                            radar_id=radar.id,
-                            signal_id=signal.id,
-                        )
-                        session.add(match)
-                        await session.flush()
-            await session.commit()
-            
-            # Trigger notification dispatching for due items
-            await notify_matches(session, signal_ids=[signal.id])
-            await flush_deliveries(session)
-    except Exception as briefing_exc:
-        logger.warning("Automated deep briefing & high-alpha webhook dispatch failed for signal %s: %r", signal.id, briefing_exc)
+    # Briefings are generated on explicit request from the signal detail page.
+    # Keep the live collection path focused on finding and persisting signals;
+    # expensive enrichment must not hold up the next source or notification.
 
     source_event.signal_id = signal.id
 
@@ -509,6 +529,7 @@ async def _recompute(
     signal: Signal,
     captured_at: datetime | None = None,
     rank: int | None = None,
+    record_snapshot: bool = True,
 ) -> None:
     """Derive growth / acceleration / status / strength and append a snapshot."""
     snapshot_time = captured_at or datetime.now(UTC)
@@ -561,6 +582,9 @@ async def _recompute(
     signal.strength = strength
     signal.last_seen_at = snapshot_time
     signal.age_minutes = round(metrics.age_minutes, 1)
+
+    if not record_snapshot:
+        return
 
     session.add(
         SignalSnapshot(
@@ -643,14 +667,14 @@ async def _update_source_health(
     health.healthy_since = None
 
 
-async def refresh_signal_metrics(session: AsyncSession, limit: int = 1000) -> int:
-    """Re-derive metrics for existing signals (called by the scheduler)."""
+async def refresh_signal_metrics(session: AsyncSession, limit: int = 300) -> int:
+    """Refresh top live signals without appending duplicate history samples."""
     signals = (
         (
             await session.execute(
                 select(Signal)
                 .where(Signal.status != SignalStatus.FADING)
-                .order_by(Signal.last_seen_at.asc())
+                .order_by(Signal.strength.desc(), Signal.last_seen_at.desc())
                 .limit(limit)
             )
         )
@@ -658,6 +682,6 @@ async def refresh_signal_metrics(session: AsyncSession, limit: int = 1000) -> in
         .all()
     )
     for signal in signals:
-        await _recompute(session, signal)
+        await _recompute(session, signal, record_snapshot=False)
     await session.commit()
     return len(signals)

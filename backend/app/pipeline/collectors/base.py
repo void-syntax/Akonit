@@ -7,7 +7,6 @@ never touch the database or detection logic — that keeps layers independent.
 from __future__ import annotations
 
 import abc
-from abc import abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -33,10 +32,10 @@ class RawEvent:
     category: str | None = None
     published_at: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def observed_at(self) -> datetime:
-        return self.published_at or datetime.now(UTC)
+    # Collection time must remain distinct from publication time. Using the
+    # publish timestamp as `observed_at` made an old-but-reseen item look
+    # invisible to recency, retention and cross-source deduplication.
+    observed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass

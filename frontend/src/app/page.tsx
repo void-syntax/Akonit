@@ -201,12 +201,15 @@ export default function FeedPage() {
           )}
         </div>
 
-        <div className="tabs">
+        <div className="tabs" role="tablist" aria-label="Filter signals by trend status">
           {TABS.map((item) => (
             <button
               key={item.id}
               className="tab"
               data-active={tab === item.id}
+              role="tab"
+              aria-selected={tab === item.id}
+              aria-controls="signal-results"
               onClick={() => setTab(item.id)}
             >
               {item.label}
@@ -270,6 +273,7 @@ export default function FeedPage() {
           <button
             className="filter"
             data-active={minStrength >= 50}
+            aria-pressed={minStrength >= 50}
             onClick={() => setMinStrength(minStrength >= 50 ? 0 : 50)}
           >
             <span className="filter-label">Strength</span>
@@ -367,20 +371,22 @@ export default function FeedPage() {
           </div>
         )}
 
-        {signals.map((signal) => (
-          <SignalCard
-            key={signal.id}
-            signal={signal}
-            onChange={(updated) =>
-              setSignals((prev) =>
-                prev.map((item) => (item.id === updated.id ? updated : item)),
-              )
-            }
-            onDelete={(id) =>
-              setSignals((prev) => prev.filter((item) => item.id !== id))
-            }
-          />
-        ))}
+        <div id="signal-results" role="tabpanel" aria-label={`${tab} signals`}>
+          {signals.map((signal) => (
+            <SignalCard
+              key={signal.id}
+              signal={signal}
+              onChange={(updated) =>
+                setSignals((prev) =>
+                  prev.map((item) => (item.id === updated.id ? updated : item)),
+                )
+              }
+              onDelete={(id) =>
+                setSignals((prev) => prev.filter((item) => item.id !== id))
+              }
+            />
+          ))}
+        </div>
       </div>
     </>
   );

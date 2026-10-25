@@ -30,7 +30,7 @@ async def run_collection_task(session: AsyncSession) -> dict:
         session,
         countries=await active_countries(session),
         keywords=await collection_keywords(session),
-        limit_per_source=40,
+        limit_per_source=settings.collection_max_events_per_source,
     )
 
     # push the freshest signals to the live feed

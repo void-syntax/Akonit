@@ -54,13 +54,18 @@ class Settings(BaseSettings):
     # while they are still early, so the worker runs as often as it reasonably
     # can on the machine it is running on.
     collect_interval_seconds: int = 60
-    snapshot_interval_seconds: int = 60
+    snapshot_interval_seconds: int = 300
     fetch_timeout_seconds: int = 30
+    source_cooldown_seconds: int = 300
     http_user_agent: str = (
         "SignalRadarBot/0.1 (+https://github.com/signal-radar) "
         "Mozilla/5.0 (compatible; SignalRadar/0.1)"
     )
-    http_max_concurrency: int = 8
+    # Keep the request pool small so a laptop can collect without bursts of
+    # sockets, memory and CPU. Individual collectors still run concurrently.
+    http_max_concurrency: int = 4
+    collection_max_events_per_source: int = 25
+    ai_classification_enabled: bool = False
 
     # --- tag-driven collection ---
     # Countries to cover before the user configures any radar, so a fresh

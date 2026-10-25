@@ -26,6 +26,8 @@ from app.pipeline.collectors import stackoverflow  # noqa: F401
 from app.pipeline.collectors import tiktok  # noqa: F401
 from app.pipeline.collectors import x_trends  # noqa: F401
 from app.pipeline.collectors import youtube  # noqa: F401
+from app.pipeline.collectors import mastodon_trends  # noqa: F401
+from app.pipeline.collectors import github_trending  # noqa: F401
 from app.pipeline.collectors.registry import (
     all_adapters,
     collect_all,

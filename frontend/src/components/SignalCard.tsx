@@ -199,11 +199,15 @@ export function SignalCard({ signal, onChange, onDelete }: Props) {
               #{tag.replace(/^custom:/, "").replace(/-/g, " ")}
             </span>
           ))}
-          {signal.cross_source_count > 1 && (
-            <span className="tag-chip" title="Confirmed across sources">
-              <LayersIcon size={11} /> {signal.cross_source_count} sources
-            </span>
-          )}
+        </div>
+      )}
+
+      {signal.cross_source_count > 1 && (
+        <div className="card-tags card-evidence">
+          <span className="tag-chip" title="Observed by more than one source">
+            <LayersIcon size={12} />
+            {signal.cross_source_count} sources
+          </span>
         </div>
       )}
 
@@ -216,7 +220,7 @@ export function SignalCard({ signal, onChange, onDelete }: Props) {
           className="strength"
           title={`Signal strength ${Math.round(signal.strength)}/100`}
         >
-          <span className="strength-label">STR</span>
+          <span className="strength-label">Strength</span>
           <span className="strength-bar">
             <span
               className="strength-fill"

@@ -72,8 +72,9 @@ class NpmSearchStrategy(Strategy):
                 if downloads < 100:
                     continue
                 
-                # Activity metric emphasizing weekly spike velocity
-                activity_score = downloads + (weekly_downloads * 4.0)
+                # Use the measured weekly window, not lifetime/monthly scale,
+                # so subsequent samples can reveal whether downloads accelerate.
+                activity_score = weekly_downloads
                 
                 events.append(
                     RawEvent(
@@ -84,7 +85,7 @@ class NpmSearchStrategy(Strategy):
                         or f"https://www.npmjs.com/package/{name}",
                         description=(pkg.get("description") or "")[:400],
                         activity=activity_score,
-                        activity_metric="download_velocity",
+                        activity_metric="weekly_downloads",
                         category="package",
                         hashtags=pkg.get("keywords") or [],
                         published_at=_parse_iso(pkg.get("date")),

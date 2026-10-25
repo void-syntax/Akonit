@@ -7,6 +7,7 @@ Flags prediction markets with high volume surges as high-conviction future event
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.logging import get_logger
@@ -31,11 +32,24 @@ class PolymarketGammaStrategy(Strategy):
     async def fetch(self, client: Any, ctx: FetchContext) -> list[RawEvent]:
         events: list[RawEvent] = []
         
-        url = "https://gamma-api.polymarket.com/events?limit=25&active=true&closed=false"
+        url = "https://gamma-api.polymarket.com/events"
         headers = {"User-Agent": "AkonitSignalRadar/1.0 (OSINT Collector)"}
 
         try:
-            data = await client.get_json(url, headers=headers, retries=1)
+            data = await client.get_json(
+                url,
+                params={
+                    "limit": min(max(ctx.limit, 1), 25),
+                    "active": "true",
+                    "closed": "false",
+                    # Gamma uses the camelCase field name for event ordering;
+                    # `volume_24hr` returns HTTP 422 on /events.
+                    "order": "volume24hr",
+                    "ascending": "false",
+                },
+                headers=headers,
+                retries=1,
+            )
         except Exception as exc:
             raise SourceUnavailable(f"Polymarket Gamma API request failed: {exc}") from exc
 
@@ -58,13 +72,26 @@ class PolymarketGammaStrategy(Strategy):
         return events[: ctx.limit]
 
     def _to_event(self, item: dict[str, Any]) -> RawEvent | None:
+        # Exclude lingering active records whose outcome window already ended.
+        end_date = item.get("endDate") or item.get("end_date")
+        if end_date:
+            try:
+                end_at = datetime.fromisoformat(str(end_date).replace("Z", "+00:00"))
+                if end_at.tzinfo is None:
+                    end_at = end_at.replace(tzinfo=UTC)
+                if end_at <= datetime.now(UTC):
+                    return None
+            except ValueError:
+                pass
+
         title = item.get("title") or item.get("question")
         event_id = item.get("id") or item.get("slug")
         if not title or not event_id:
             return None
 
         description = item.get("description", "")
-        volume = float(item.get("volume") or item.get("volume24hr") or 0.0)
+        volume_24h = float(item.get("volume24hr") or item.get("volume_24hr") or 0.0)
+        lifetime_volume = float(item.get("volume") or 0.0)
         liquidity = float(item.get("liquidity") or 0.0)
         
         markets = item.get("markets", [])
@@ -90,11 +117,13 @@ class PolymarketGammaStrategy(Strategy):
                 "volume": m.get("volume", 0),
             })
 
-        activity = volume + (liquidity * 0.5)
+        # A recent activity window is a better early-momentum feature than
+        # lifetime volume, which over-ranks old markets that stopped moving.
+        activity = volume_24h + (liquidity * 0.5)
         hashtags = ["polymarket", "prediction", "forecast", "betting"]
         
         notes = None
-        if volume > 500000:
+        if volume_24h > 500000:
             notes = "High-conviction future event (Massive Volume Surge)"
             activity *= 2.0
 
@@ -110,17 +139,29 @@ class PolymarketGammaStrategy(Strategy):
             activity_metric="volume+liquidity",
             category="finance",
             hashtags=hashtags,
+            published_at=self._parse_datetime(item.get("createdAt") or item.get("created_at")),
             metadata={
                 "event_id": event_id,
                 "slug": item.get("slug"),
-                "volume": volume,
+                "volume": lifetime_volume,
+                "volume_24h": volume_24h,
                 "liquidity": liquidity,
                 "outcomes": outcomes_info,
-                "high_conviction": volume > 100000,
+                "high_conviction": volume_24h > 100000,
                 "notes": notes,
                 "strategy": "polymarket_gamma",
             },
         )
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
 @register_source
@@ -134,7 +175,7 @@ class PolymarketAdapter(SourceAdapter):
     )
     capabilities = ["polymarket", "prediction_markets", "forecasting", "volume", "liquidity", "finance", "alpha_boost"]
     priority = 13
-    collect_interval_seconds = 1800
+    collect_interval_seconds = 300
     strategies = [PolymarketGammaStrategy()]
 
     async def fetch(self, ctx: FetchContext, client: Any) -> FetchResult:

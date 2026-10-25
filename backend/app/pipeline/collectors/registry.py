@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from typing import TypeVar
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.pipeline.collectors.base import FetchContext, FetchResult, SourceAdapter
 from app.pipeline.collectors.http_client import HttpClient
@@ -16,6 +17,7 @@ from app.pipeline.collectors.http_client import HttpClient
 logger = get_logger("collector.registry")
 
 _REGISTRY: dict[str, SourceAdapter] = {}
+_SOURCE_COOLDOWNS: dict[str, float] = {}
 
 A = TypeVar("A", bound=SourceAdapter)
 
@@ -37,6 +39,15 @@ def get_adapter(source_id: str) -> SourceAdapter | None:
 
 def all_adapters() -> list[SourceAdapter]:
     return sorted(_REGISTRY.values(), key=lambda a: (a.priority, a.source_id))
+
+
+def source_is_cooling_down(source_id: str) -> bool:
+    """Avoid repeating known failures on every scheduler tick."""
+    until = _SOURCE_COOLDOWNS.get(source_id, 0.0)
+    if asyncio.get_running_loop().time() < until:
+        return True
+    _SOURCE_COOLDOWNS.pop(source_id, None)
+    return False
 
 
 def registry_snapshot() -> list[dict]:
@@ -77,13 +88,22 @@ async def run_strategy_cascade(
     rl = get_rate_limiter(adapter.source_id)
 
     if cb.is_open():
-        logger.warning("[%s] circuit is OPEN. Returning empty list gracefully.", adapter.source_id)
+        logger.info("[%s] circuit is OPEN; source temporarily skipped.", adapter.source_id)
         return FetchResult(
             source_id=adapter.source_id,
             events=[],
             strategy="none",
             ok=True,
             notes="circuit breaker open",
+        )
+
+    if source_is_cooling_down(adapter.source_id):
+        return FetchResult(
+            source_id=adapter.source_id,
+            events=[],
+            strategy="none",
+            ok=True,
+            notes="source cooldown after failure",
         )
 
     if not await rl.async_acquire():
@@ -98,20 +118,24 @@ async def run_strategy_cascade(
 
     errors: list[str] = []
     strategy_succeeded = False
+    last_failure: str | None = None
     for strategy in adapter.strategies:
         try:
             events = await strategy.fetch(client, ctx)
         except SourceUnavailable as exc:
             errors.append(f"{strategy.name}: {exc}")
+            last_failure = str(exc)
             logger.info("[%s] strategy %s unavailable: %s", adapter.source_id, strategy.name, exc)
             continue
         except Exception as exc:  # unexpected: treat as strategy failure
             errors.append(f"{strategy.name}: unexpected {exc!r}")
+            last_failure = repr(exc)
             logger.warning("[%s] strategy %s crashed: %r", adapter.source_id, strategy.name, exc)
             continue
 
         if not events:
             errors.append(f"{strategy.name}: returned no events")
+            last_failure = "returned no events"
             continue
 
         strategy_succeeded = True
@@ -129,6 +153,11 @@ async def run_strategy_cascade(
 
     if not strategy_succeeded:
         cb.record_failure()
+        if last_failure not in {"returned no events", None}:
+            cooldown = max(settings.source_cooldown_seconds, 0)
+            _SOURCE_COOLDOWNS[adapter.source_id] = (
+                asyncio.get_running_loop().time() + cooldown
+            )
 
     return FetchResult(
         source_id=adapter.source_id,

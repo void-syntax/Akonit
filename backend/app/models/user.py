@@ -50,6 +50,7 @@ class UserProfile(Base):
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     language: Mapped[str] = mapped_column(String(8), default="en")
     telegram_chat_id: Mapped[str | None] = mapped_column(String(64))
+    telegram_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     default_frequency: Mapped[NotificationFrequency] = mapped_column(
         SAEnum(NotificationFrequency), default=NotificationFrequency.INSTANT
     )

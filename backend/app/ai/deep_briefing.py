@@ -1,16 +1,9 @@
-"""Automated Deep Briefing Agent (`backend/app/ai/deep_briefing.py`)
-
-Synthesizes raw multi-source data (GitHub acceleration, SEC filings, Polymarket odds,
-Hugging Face trends, arXiv pre-prints) into a structured Executive Intelligence Briefing
-(Core Thesis, Alpha Potential, Monetization Strategy, Risk Analysis).
-"""
+"""Create a lightweight, evidence-aware template summary for a signal."""
 
 from __future__ import annotations
 
-import asyncio
-import logging
 from datetime import UTC, datetime
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +26,7 @@ class IntelligenceBriefingDict(TypedDict):
 
 
 async def synthesize_deep_briefing(session: AsyncSession, signal_id: str) -> IntelligenceBriefing | None:
-    """Trigger deep briefing synthesis for a given signal if priority is critical or UNICORN_SIGNAL."""
+    """Create an evidence-aware template summary for a high-priority signal."""
     signal = await session.get(Signal, signal_id)
     if not signal:
         logger.warning("Signal %s not found for deep briefing", signal_id)
@@ -59,38 +52,37 @@ async def synthesize_deep_briefing(session: AsyncSession, signal_id: str) -> Int
         logger.debug("Signal %s does not meet critical/unicorn criteria for deep briefing", signal_id)
         return None
 
-    logger.info("Generating autonomous deep intelligence briefing for signal: %s (%s)", signal.title, signal.id)
+    logger.info("Creating signal briefing for %s (%s)", signal.title, signal.id)
 
     # Synthesize multi-source data
-    metadata = signal.source_metadata or {}
     cross_urls = signal.cross_source_urls or [signal.source_url]
     keywords = signal.keywords or []
     category = signal.ai_category or signal.category or "tech"
 
-    # Construct rich AI structured intelligence briefing
+    # The current implementation is a transparent template, not an LLM.
     core_thesis = (
-        f"Autonomous synthesis of '{signal.title}' indicates a transformative inflection point in "
-        f"{category.upper()}. Driven by multi-source acceleration across {len(cross_urls)} verified corridors "
-        f"(GitHub acceleration, Hugging Face trends, SEC/arXiv footprints), this signal exhibits "
-        f"exponential breakout probability with current strength rating of {signal.strength:.1f}/100 and growth velocity of {signal.growth:+.1f}%."
+        f"Observed trend: '{signal.title}' ({category}). Current strength is "
+        f"{signal.strength:.1f}/100 and reported growth is {signal.growth:+.1f}%. "
+        f"The record contains {len(cross_urls)} source references; verify they are independent "
+        "and confirm the underlying publication dates before treating this as corroborated."
     )
 
     alpha_potential = (
-        f"Institutional Alpha Rating: Exceptional ({signal.strength * 0.95:.1f}/100). "
-        f"Early-mover advantage in {keywords[0] if keywords else category} suggests asymmetric capital appreciation. "
-        f"Cross-source corroboration confirms institutional accumulation and developer velocity surge."
+        f"Trend strength: {signal.strength:.1f}/100; this measures observed activity, "
+        "not investment alpha or expected return. "
+        f"Topic: {keywords[0] if keywords else category}. "
+        f"Observed source references: {len(cross_urls)}; corroboration is not proof of institutional activity."
     )
 
     monetization_strategy = (
-        f"1. **Developer API & Tooling Integration**: Capitalize on {signal.title} by building proprietary wrappers or middleware.\n"
-        f"2. **Venture Arbitrage**: Early capital allocation or proprietary fork deployment within 14-21 days.\n"
-        f"3. **Enterprise Licensing**: Secure defensive IP positions or proprietary dataset syndication."
+        "No commercial plan can be inferred from activity alone. Verify user demand, "
+        "pricing, competition, licensing, and operating costs before estimating a business case."
     )
 
     risk_analysis = (
-        f"- **Execution Friction**: High engineering velocity required to outpace fast followers.\n"
-        f"- **Regulatory & Compliance Headwinds**: SEC filing scrutiny or trademark collisions possible.\n"
-        f"- **Noise Volatility**: Probability of false-positive breakout estimated at {signal.ai_noise_probability * 100:.1f}%."
+        f"- **Evidence gaps**: Check primary sources and verify publication time and source independence.\n"
+        f"- **Commercial uncertainty**: Trend activity alone does not establish demand, revenue, or investability.\n"
+        f"- **Noise indicator**: classifier estimate {signal.ai_noise_probability * 100:.1f}%; not a calibrated probability."
     )
 
     briefing = IntelligenceBriefing(
@@ -100,13 +92,12 @@ async def synthesize_deep_briefing(session: AsyncSession, signal_id: str) -> Int
         monetization_strategy=monetization_strategy,
         risk_analysis=risk_analysis,
         sources_synthesized=cross_urls,
-        confidence_score=min(max(signal.strength / 100.0, 0.75), 0.99),
-        model_used="Akonit-Frankenstein-Synthesizer-v1.2",
+        confidence_score=min(max(signal.confidence, 0.0), 1.0),
+        model_used="template-synthesis-v2",
         created_at=datetime.now(UTC),
     )
 
     session.add(briefing)
-    await session.commit()
-    await session.refresh(briefing)
-    logger.info("Successfully generated and persisted intelligence briefing for signal %s", signal.id)
+    await session.flush()
+    logger.info("Created signal briefing for %s", signal.id)
     return briefing

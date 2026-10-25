@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from app.pipeline.detection.cross_velocity import (
     BullshitScrubber,
     evaluate_cross_corroboration,
@@ -12,7 +10,7 @@ from app.pipeline.detection.cross_velocity import (
 )
 from app.pipeline.detection.scoring import compute_strength, strength_components
 from app.pipeline.detection.metrics import GrowthMetrics
-from app.ai.laya_classifier import _fallback_classification, LayaClassification
+from app.ai.laya_classifier import _fallback_classification, _finite_float, LayaClassification
 
 
 class TestBullshitScrubber:
@@ -111,3 +109,11 @@ class TestLayaClassifierEnhancements:
         assert "risk_reward_ratio" in classification
         assert classification["actionability_potential"] >= 80.0
         assert classification["risk_reward_ratio"] > 1.0
+        assert classification["alpha_score"] == 0.0
+        assert classification["monetization_potential"] == 0.0
+        assert classification["breakout_probability"] == 0.0
+
+    def test_model_output_clamps_invalid_or_out_of_range_numbers(self):
+        assert _finite_float(float("nan"), 0.3, 0.0, 1.0) == 0.3
+        assert _finite_float(float("inf"), 0.3, 0.0, 1.0) == 0.3
+        assert _finite_float(4, 0.3, 0.0, 1.0) == 1.0

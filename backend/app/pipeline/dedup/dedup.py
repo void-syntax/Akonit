@@ -9,6 +9,7 @@ OR their content fingerprints are close enough in simhash space and recent.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from app.core.config import settings
 from app.pipeline.normalization.normalizer import canonicalize_url, similarity, simhash
@@ -58,14 +59,20 @@ def find_cluster(
 
     exact_url: ClusterCandidate | None = None
     best: tuple[float, ClusterCandidate] | None = None
+    now_ts = datetime.now(UTC).timestamp()
+    cutoff = now_ts - window * 60
 
     for candidate in candidates:
-        if candidate.source_id == source_id and canonicalize_url(candidate.url) == own_canonical:
+        if candidate.observed_at < cutoff or candidate.observed_at > now_ts + 300:
+            continue
+
+        candidate_canonical = canonicalize_url(candidate.url)
+        if own_canonical and candidate_canonical == own_canonical:
             exact_url = candidate
             break
 
         score = similarity(own_hash, candidate.simhash)
-        if score > settings.dedup_similarity_threshold and (
+        if should_merge_cross_source(source_id, candidate.source_id, score) and (
             best is None or score > best[0]
         ):
             best = (score, candidate)

@@ -52,6 +52,8 @@ def _build_engine(url: str) -> AsyncEngine:
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
             cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA cache_size=-4000")  # 4MB cache limit to keep RAM consumption minimal
+            cursor.execute("PRAGMA temp_store=MEMORY")
             cursor.close()
         return engine
     return create_async_engine(

@@ -47,24 +47,43 @@ class GitHubSearchStrategy(Strategy):
 
     async def fetch(self, client: Any, ctx: FetchContext) -> list[RawEvent]:
         since = datetime.now(UTC) - timedelta(hours=48)
-        queries = ctx.keywords[:4] if ctx.keywords else ["", "ai", "agent", "llm"]
+        # A small, fixed query budget protects anonymous API limits while
+        # looking for several independent early-stage discovery paths.
+        custom_terms = [term.strip() for term in ctx.keywords if term.strip()][:2]
+        # GitHub search sort modes surface rapid growth separately from raw size.
+        created = since.strftime("%Y-%m-%d")
+        if custom_terms:
+            searches = [
+                (f"created:>{created} stars:>5 {term}", "stars")
+                for term in custom_terms[:2]
+            ]
+            if len(searches) == 1:
+                searches.append(
+                    (f"created:>{created} stars:>5 topic:artificial-intelligence", "updated")
+                )
+        else:
+            searches = [
+                (f"created:>{created} stars:>10", "stars"),
+                (f"created:>{created} stars:>5 topic:artificial-intelligence", "updated"),
+            ]
         headers = {}
         if settings.github_token:
             headers["Authorization"] = f"Bearer {settings.github_token}"
 
-        events: list[RawEvent] = []
-        for topic in queries:
-            q = f"created:>{since.strftime('%Y-%m-%dT%H:%M:%SZ')} stars:>20"
-            if topic:
-                q += f" {topic}"
+        events_by_repo: dict[str, RawEvent] = {}
+        for q, sort in searches:
+            # Keep each run to two requests. The adapter cooldown governs the
+            # per-minute rate across runs, including anonymous API usage.
+            if events_by_repo and len(events_by_repo) >= ctx.limit:
+                break
             url = (
                 "https://api.github.com/search/repositories"
-                f"?q={q.replace(' ', '+')}&sort=stars&order=desc&per_page=30"
+                f"?q={q.replace(' ', '+')}&sort={sort}&order=desc&per_page=20"
             )
             try:
                 data = await client.get_json(url, headers=headers)
             except SourceUnavailable as exc:
-                logger.debug("github search %r failed: %s", topic, exc)
+                logger.debug("github %s search failed: %s", sort, exc)
                 continue
 
             for rank, item in enumerate(data.get("items") or [], start=1):
@@ -83,36 +102,51 @@ class GitHubSearchStrategy(Strategy):
                 if len(desc) < 15 and stars < 50:
                     continue  # Filter out low signal repos with minimal description
 
-                events.append(
-                    RawEvent(
-                        source_id="github",
-                        external_id=f"gh:{item['full_name']}",
-                        title=item["full_name"],
-                        url=item.get("html_url") or "",
-                        description=desc[:400],
-                        activity=stars + forks * 2 + (stars_per_day * 10),
-                        activity_metric="star_velocity",
-                        category="repository",
-                        hashtags=item.get("topics") or [],
-                        published_at=created_at,
-                        thumbnail=item.get("owner", {}).get("avatar_url"),
-                        metadata={
-                            "stars": stars,
-                            "forks": forks,
-                            "stars_per_day": stars_per_day,
-                            "watchers": item.get("watchers_count"),
-                            "open_issues": item.get("open_issues_count"),
-                            "language": item.get("language"),
-                            "topics": item.get("topics") or [],
-                            "rank": rank,
-                            "license": (item.get("license") or {}).get("spdx_id"),
-                            "strategy": "search_api",
-                        },
-                    )
+                event = RawEvent(
+                    source_id="github",
+                    external_id=f"gh:{item['full_name']}",
+                    title=item["full_name"],
+                    url=item.get("html_url") or "",
+                    description=desc[:400],
+                    activity=stars + forks * 2 + (stars_per_day * 10),
+                    activity_metric="star_velocity",
+                    category="repository",
+                    hashtags=item.get("topics") or [],
+                    published_at=created_at,
+                    thumbnail=item.get("owner", {}).get("avatar_url"),
+                    metadata={
+                        "stars": stars,
+                        "forks": forks,
+                        "stars_per_day": stars_per_day,
+                        "watchers": item.get("watchers_count"),
+                        "open_issues": item.get("open_issues_count"),
+                        "language": item.get("language"),
+                        "topics": item.get("topics") or [],
+                        "rank": rank,
+                        "license": (item.get("license") or {}).get("spdx_id"),
+                        "strategy": f"search_{sort}",
+                    },
                 )
-            if events:
-                break
+                key = item.get("full_name") or item.get("id")
+                if key:
+                    previous = events_by_repo.get(str(key))
+                    if previous is None or event.activity > previous.activity:
+                        events_by_repo[str(key)] = event
 
+        events = list(events_by_repo.values())
+        for event in events:
+            event.metadata["recency_hours"] = max(
+                (datetime.now(UTC) - event.published_at).total_seconds() / 3600,
+                0.0,
+            ) if event.published_at else 48.0
+        events.sort(
+            key=lambda event: (
+                event.metadata.get("stars_per_day", 0)
+                / max(event.metadata.get("recency_hours", 48.0), 1.0) ** 0.25,
+                -event.metadata.get("rank", 999),
+            ),
+            reverse=True,
+        )
         if not events:
             raise SourceUnavailable("github search returned no repositories")
         return events[: ctx.limit]

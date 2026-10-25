@@ -11,6 +11,7 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-multipart==0.0.20
 httpx==0.28.1
+curl_cffi==0.7.4
 redis==5.2.1
 tenacity==9.0.0
 feedparser==6.0.11
@@ -21,7 +22,7 @@ rapidfuzz==3.12.2
 apscheduler==3.11.0
 email-validator==2.2.0
 prometheus-client==0.26.0
-prometheus-fastapi-instrumentator==8.1.0
+prometheus-fastapi-instrumentator==7.0.0
 opentelemetry-api
 opentelemetry-sdk
 opentelemetry-instrumentation-fastapi

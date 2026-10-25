@@ -33,6 +33,7 @@ class ProfileOut(ORMModel):
     timezone: str
     language: str
     telegram_chat_id: str | None
+    telegram_alerts_enabled: bool = False
     default_frequency: NotificationFrequency
     onboarded: bool
     signal_threshold: float = 0.0
@@ -237,6 +238,7 @@ class ProfileUpdate(BaseModel):
     timezone: str | None = None
     language: str | None = None
     telegram_chat_id: str | None = None
+    telegram_alerts_enabled: bool | None = None
     default_frequency: NotificationFrequency | None = None
     signal_threshold: float | None = None
     default_countries: list[str] | None = None

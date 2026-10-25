@@ -35,7 +35,16 @@ def _install_signal_handlers() -> None:
             loop.add_signal_handler(sig, _stop.set)
 
 
-_GLOBAL_LOCK = asyncio.Lock()
+_GLOBAL_LOCK = asyncio.Lock()  # kept for external callers who might reference it
+
+# Fine-grained per-task locks: collection and notification now run concurrently
+# instead of serialising behind a single global lock, so the scheduler stays
+# responsive even when one long task (e.g. a slow collection cycle) is running.
+_COLLECT_LOCK = asyncio.Lock()
+_MATCH_LOCK = asyncio.Lock()
+_NOTIFY_LOCK = asyncio.Lock()
+_METRICS_LOCK = asyncio.Lock()
+_CLEANUP_LOCK = asyncio.Lock()
 
 
 from opentelemetry import trace
@@ -48,7 +57,7 @@ async def _cycle_collect() -> None:
         logger.info("collection skipped (worker is paused by user)")
         return
     with tracer.start_as_current_span("worker.collect"):
-        async with _GLOBAL_LOCK:
+        async with _COLLECT_LOCK:
             async with SessionLocal() as session:
                 result = await run_collection_task(session)
                 logger.info("collection finished: %s", result)
@@ -56,7 +65,7 @@ async def _cycle_collect() -> None:
 
 async def _cycle_match() -> None:
     with tracer.start_as_current_span("worker.match"):
-        async with _GLOBAL_LOCK:
+        async with _MATCH_LOCK:
             async with SessionLocal() as session:
                 result = await run_matching_task(session)
                 logger.info("matching finished: %s", result)
@@ -64,7 +73,7 @@ async def _cycle_match() -> None:
 
 async def _cycle_notify() -> None:
     with tracer.start_as_current_span("worker.notify"):
-        async with _GLOBAL_LOCK:
+        async with _NOTIFY_LOCK:
             async with SessionLocal() as session:
                 result = await run_notification_task(session)
                 logger.info("notifications finished: %s", result)
@@ -72,7 +81,7 @@ async def _cycle_notify() -> None:
 
 async def _cycle_metrics() -> None:
     with tracer.start_as_current_span("worker.metrics"):
-        async with _GLOBAL_LOCK:
+        async with _METRICS_LOCK:
             async with SessionLocal() as session:
                 count = await refresh_metrics_task(session)
                 logger.info("metrics refreshed for %d signals", count)
@@ -80,7 +89,7 @@ async def _cycle_metrics() -> None:
 
 async def _cycle_cleanup() -> None:
     with tracer.start_as_current_span("worker.cleanup"):
-        async with _GLOBAL_LOCK:
+        async with _CLEANUP_LOCK:
             async with SessionLocal() as session:
                 result = await cleanup_task(session)
                 logger.info("cleanup finished: %s", result)
@@ -131,6 +140,8 @@ async def main() -> None:
         max_instances=1,
         coalesce=True,
     )
+    # The collection cycle itself skips sources until their declared cadence is
+    # due; this tick only keeps fast sources responsive and checks due times.
     scheduler.start()
 
     logger.info("worker started (collect every %ss)", settings.collect_interval_seconds)

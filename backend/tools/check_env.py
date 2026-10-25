@@ -85,7 +85,6 @@ def check_local_env() -> int:
                     hits.append(f"  line {number}: {host}")
         if hits:
             print(f"{path.relative_to(ROOT)}: points at a hosted service")
-            hits.extend(hits)
             print("\n".join(hits))
             print("  local builds must use localhost or a sqlite file")
             problems += len(hits)
@@ -112,17 +111,51 @@ def check_migration_covers_models() -> int:
         print("no migrations found; skipping column check")
         return 0
 
-    text = "\n".join(v.read_text(encoding="utf-8") for v in versions)
+    migrated_columns: dict[str, set[str]] = {}
+    for version in versions:
+        tree = ast.parse(version.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr == "create_table" and node.args:
+                table_arg = node.args[0]
+                if isinstance(table_arg, ast.Constant) and isinstance(table_arg.value, str):
+                    table = table_arg.value
+                    columns = migrated_columns.setdefault(table, set())
+                    for child in node.args[1:]:
+                        if (
+                            isinstance(child, ast.Call)
+                            and isinstance(child.func, ast.Attribute)
+                            and child.func.attr == "Column"
+                            and child.args
+                            and isinstance(child.args[0], ast.Constant)
+                            and isinstance(child.args[0].value, str)
+                        ):
+                            columns.add(child.args[0].value)
+            elif node.func.attr == "add_column" and len(node.args) >= 2:
+                table_arg, column_arg = node.args[:2]
+                if (
+                    isinstance(table_arg, ast.Constant)
+                    and isinstance(table_arg.value, str)
+                    and isinstance(column_arg, ast.Call)
+                    and isinstance(column_arg.func, ast.Attribute)
+                    and column_arg.func.attr == "Column"
+                    and column_arg.args
+                    and isinstance(column_arg.args[0], ast.Constant)
+                    and isinstance(column_arg.args[0].value, str)
+                ):
+                    migrated_columns.setdefault(table_arg.value, set()).add(
+                        column_arg.args[0].value
+                    )
 
     problems = 0
     for table in Base.metadata.sorted_tables:
-        # create_table calls name the table; anything else is created implicitly.
-        if f"'{table.name}'" not in text and f'"{table.name}"' not in text:
+        if table.name not in migrated_columns:
             print(f"table not in any migration: {table.name}")
             problems += 1
             continue
         for column in table.columns:
-            if f"'{column.name}'" in text or f'"{column.name}"' in text:
+            if column.name in migrated_columns[table.name]:
                 continue
             print(f"column missing from migrations: {table.name}.{column.name}")
             problems += 1

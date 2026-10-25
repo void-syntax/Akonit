@@ -40,7 +40,7 @@ def format_telegram_bulletin(signal, radar_name: str | None = None) -> str:
 
 
 async def _background_alert_dispatcher() -> None:
-    """Background loop monitoring for critical/breakout signals with high alpha score and pushing bulletins to @akonit_analitik_bot."""
+    """Background loop monitoring for critical/breakout signals with high alpha score and pushing bulletins to configured user chat IDs."""
     token = settings.telegram_bot_token
     if not token:
         return
@@ -57,10 +57,18 @@ async def _background_alert_dispatcher() -> None:
             from app.db.session import SessionLocal
             from app.models import Signal
             from app.models.enums import SignalStatus
+            from app.models.user import UserProfile
             from app.notifications.telegram import TelegramClient
             from sqlalchemy import select, or_
 
             async with SessionLocal() as session:
+                profiles = (await session.execute(
+                    select(UserProfile).where(
+                        UserProfile.telegram_chat_id.isnot(None),
+                        UserProfile.telegram_alerts_enabled.is_(True)
+                    )
+                )).scalars().all()
+
                 signals = (await session.execute(
                     select(Signal)
                     .where(
@@ -73,20 +81,30 @@ async def _background_alert_dispatcher() -> None:
                     .limit(5)
                 )).scalars().all()
 
-                async with TelegramClient(token=token) as client:
+                if not profiles:
+                    logger.debug("Telegram background dispatcher: no user profiles with telegram_alerts_enabled and telegram_chat_id configured. Skipping broadcast.")
                     for s in signals:
-                        if s.id in notified_signal_ids:
-                            continue
-                        if s.strength >= 60 or s.ai_priority == "critical":
-                            chat_id = "@akonit_analitik_bot"
-                            bulletin = format_telegram_bulletin(s)
-                            try:
-                                await client.send(chat_id, bulletin)
+                        notified_signal_ids.add(s.id)
+                else:
+                    async with TelegramClient(token=token) as client:
+                        for s in signals:
+                            if s.id in notified_signal_ids:
+                                continue
+                            if s.strength >= 60 or s.ai_priority == "critical":
+                                bulletin = format_telegram_bulletin(s)
+                                sent_any = False
+                                for profile in profiles:
+                                    chat_id = profile.telegram_chat_id
+                                    if not chat_id or chat_id.strip() in ("", "@akonit_analitik_bot"):
+                                        continue
+                                    try:
+                                        await client.send(chat_id, bulletin)
+                                        sent_any = True
+                                        logger.info("Pushed automated background intelligence bulletin for signal %s to chat_id %s", s.id, chat_id)
+                                    except Exception as ex:
+                                        logger.warning("Failed to push automated telegram bulletin for %s to %s: %r", s.id, chat_id, ex)
+                                    await asyncio.sleep(1)
                                 notified_signal_ids.add(s.id)
-                                logger.info("Pushed automated background intelligence bulletin for signal %s to %s", s.id, chat_id)
-                            except Exception as ex:
-                                logger.warning("Failed to push automated telegram bulletin for %s: %r", s.id, ex)
-                            await asyncio.sleep(2)
         except Exception as exc:
             logger.warning("Error in background telegram alert dispatcher: %r", exc)
 

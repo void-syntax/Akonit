@@ -173,9 +173,20 @@ async def telegram_status(user: CurrentUser):
     return {
         "linked": bool(profile and profile.telegram_chat_id),
         "chat_id": profile.telegram_chat_id if profile else None,
+        "alerts_enabled": bool(profile and profile.telegram_alerts_enabled),
         "bot_configured": bool(settings.telegram_bot_token),
         "push_configured": bool(settings.vapid_private_key),
     }
+
+
+@router.post("/telegram/toggle")
+async def toggle_telegram_alerts(enabled: bool, user: CurrentUser, session: SessionDep):
+    profile = user.profile
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    profile.telegram_alerts_enabled = enabled
+    await session.commit()
+    return {"ok": True, "telegram_alerts_enabled": profile.telegram_alerts_enabled}
 
 
 @router.post("/telegram/link")

@@ -9,6 +9,7 @@ from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, OptionalUser, SessionDep
+from app.core.config import settings
 from app.models import (
     IgnoredSignal,
     Radar,
@@ -138,6 +139,17 @@ async def list_signals(
             statement = statement.join(
                 SavedSignal, SavedSignal.signal_id == Signal.id
             ).where(SavedSignal.user_id == user.id)
+
+        # The live feed is for early signals. Old saved items remain available
+        # in the Saved tab; stale unsaved trends should not outrank fresh ones.
+        if tab != "saved":
+            freshness_cutoff = datetime.now(UTC) - timedelta(
+                hours=settings.signal_ttl_hours
+            )
+            statement = statement.where(
+                Signal.first_seen_at >= freshness_cutoff,
+                Signal.last_seen_at >= freshness_cutoff,
+            )
 
         if status_filter:
             statement = statement.where(Signal.status.in_(status_filter))
@@ -361,11 +373,11 @@ async def signal_history(
 
 @router.get("/{signal_id}/briefing", response_model=IntelligenceBriefingOut)
 async def get_signal_briefing(signal_id: str, session: SessionDep):
-    """Get the autonomous deep intelligence briefing for a signal."""
+    """Get or create a lightweight, evidence-aware signal summary."""
     from app.models.signals import IntelligenceBriefing
     from app.ai.deep_briefing import synthesize_deep_briefing
 
-    signal = await _get_signal(session, signal_id)
+    await _get_signal(session, signal_id)
     briefing = (
         await session.execute(
             select(IntelligenceBriefing).where(IntelligenceBriefing.signal_id == signal_id)

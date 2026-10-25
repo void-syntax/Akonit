@@ -7,14 +7,15 @@ export function StatusBar() {
   const [timeStr, setTimeStr] = useState<string>("");
   const [paused, setPaused] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     function update() {
       const now = new Date();
-      setTimeStr(now.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+      setTimeStr(now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
     }
     update();
-    const timer = setInterval(update, 1000);
+    const timer = setInterval(update, 30_000);
     
     // Check worker status
     void api.workerStatus().then((res) => {
@@ -26,6 +27,7 @@ export function StatusBar() {
 
   const togglePause = async () => {
     setLoading(true);
+    setError(null);
     try {
       if (paused) {
         await api.resumeWorker();
@@ -35,7 +37,7 @@ export function StatusBar() {
         setPaused(true);
       }
     } catch (err) {
-      console.error(err);
+      setError(err instanceof Error ? err.message : "Could not update collection state");
     } finally {
       setLoading(false);
     }
@@ -43,32 +45,23 @@ export function StatusBar() {
 
   return (
     <footer className="statusbar" aria-label="Status bar">
-      <div className="statusbar-live" style={{ display: "flex", alignItems: "center", gap: "var(--s2)" }}>
-        <span className="statusbar-dot" style={{ backgroundColor: paused ? "var(--warn)" : "var(--ok)" }} />
-        <span>{paused ? "COLLECTION PAUSED" : "LIVE FEED ACTIVE"}</span>
+      <div className="statusbar-live" data-paused={paused}>
+        <span className="statusbar-dot" />
+        <span>{paused ? "COLLECTION PAUSED" : "COLLECTION RUNNING"}</span>
         <button
           onClick={() => void togglePause()}
           disabled={loading}
-          style={{
-            background: paused ? "rgba(234, 179, 8, 0.15)" : "rgba(239, 68, 68, 0.15)",
-            border: `1px solid ${paused ? "var(--warn)" : "var(--danger)"}`,
-            color: paused ? "var(--warn)" : "var(--danger)",
-            padding: "2px 8px",
-            borderRadius: "4px",
-            fontSize: "11px",
-            fontWeight: 600,
-            cursor: "pointer",
-            marginLeft: "8px",
-          }}
+          className="statusbar-toggle"
           title={paused ? "Resume automated background data collection" : "Pause all automated data collection & background searches"}
         >
-          {loading ? "..." : paused ? "▶ Resume Radar" : "⏹ Pause Radar"}
+          {loading ? "Updating…" : paused ? "Resume" : "Pause"}
         </button>
       </div>
+      {error && <span className="statusbar-error" role="status">{error}</span>}
       <div className="statusbar-version">
         INTELLIGENCE TERMINAL v2.4 // LAYA AI ENGINE
       </div>
-      {timeStr && <div className="statusbar-time">{timeStr} UTC</div>}
+      {timeStr && <time className="statusbar-time" dateTime={new Date().toISOString()}>{timeStr} local</time>}
     </footer>
   );
 }

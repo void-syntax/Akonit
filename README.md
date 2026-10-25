@@ -22,8 +22,8 @@ You need one of these two setups:
 
 | | |
 |---|---|
-| **Docker Desktop** — preferred. `start.bat` detects it and uses containers. |
-| **Python 3.11+ and Node.js 20+** — it falls back to a local setup on SQLite. |
+| **Python 3.11+ and Node.js 20+** — `start.bat` launches the local API, worker and dashboard. |
+| **Docker Desktop** — optional; use `docker compose up --build` to run the container stack. |
 
 Nothing else. No account, no API key, no signup, no cloud service.
 
@@ -42,9 +42,10 @@ To stop it: **`stop.bat`**, or close the windows `start.bat` opened.
 
 ### What you should see
 
-The collector runs every 60 seconds and fetches on boot, so real signals appear
-within about a minute. This is live data from TikTok, YouTube, X, Reddit, Google
-Trends and more — nothing is mocked.
+The worker checks for due sources every 60 seconds and runs one initial collection
+on startup. Each source has its own collection interval and may be unavailable
+or rate limited, so the first signal can take longer than a minute. Source health
+in the dashboard shows which collectors are currently returning data.
 
 Verify the engine itself, with no Docker and no server:
 

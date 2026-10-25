@@ -124,7 +124,7 @@ def compute_strength(
 
     # 4. Multi-source cross-corroboration matrix (UNICORN_SIGNAL 2.0x strength multiplier)
     corrob = evaluate_cross_corroboration(sources)
-    if corrob["is_unicorn"] or cross_source_count >= 2:
+    if corrob["is_unicorn"]:
         total *= 2.0
 
     return round(min(max(total, 0.0), 100.0), 2)
@@ -174,5 +174,5 @@ def strength_components(
         "staleness_factor": round(staleness_penalty(metrics, window_minutes), 3),
         "substance_factor": round(scrub["substance_factor"], 3),
         "capital_backing": calculate_capital_backing_factor(sec_volume, polymarket_liquidity),
-        "strength_multiplier": 2.0 if (corrob["is_unicorn"] or cross_source_count >= 2) else 1.0,
+        "strength_multiplier": 2.0 if corrob["is_unicorn"] else 1.0,
     }

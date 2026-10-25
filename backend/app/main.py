@@ -14,7 +14,6 @@ from app.core.cache import close_cache
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.redis_bus import close_redis, get_redis
-from app.db.session import init_models
 
 logger = get_logger(__name__)
 
@@ -85,14 +84,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await get_redis()
     logger.info("Signal Radar API ready (%s sources)", len(_sources()))
 
-    # Start background tasks: Telegram bot & Laya AI warm-up
+    # Start optional integrations only when enabled. In particular, avoid
+    # loading an AI model on a low-memory local machine by default.
     import asyncio
     from app.bot.telegram_bot import start_bot
-    from app.ai.laya_classifier import warm_up as laya_warm_up
 
     asyncio.create_task(start_bot())
-    asyncio.create_task(laya_warm_up())
-
     yield
     await close_redis()
     await close_cache()
@@ -113,6 +110,9 @@ app = FastAPI(
     default_response_class=ORJSONResponse,
 )
 
+from app.core.compression import setup_compression
+setup_compression(app, minimum_size=500)
+
 from app.core.tracing import setup_tracing
 from app.db.session import engine as db_engine
 
@@ -125,10 +125,6 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_sch
 @app.get("/health")
 async def root_health():
     return {"status": "ok", "service": "Signal Radar API"}
-
-@app.get("/")
-async def root():
-    return {"name": "Signal Radar API", "docs": "/docs", "health": "/health"}
 
 app.add_middleware(
     CORSMiddleware,

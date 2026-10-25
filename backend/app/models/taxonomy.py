@@ -89,6 +89,7 @@ class SourceEvent(Base):
     raw_payload: Mapped[dict] = mapped_column(JSON, default=dict)
     canonical_url: Mapped[str | None] = mapped_column(Text)
     fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    text_hash: Mapped[str | None] = mapped_column(String(16), index=True)
     cluster_id: Mapped[str | None] = mapped_column(String(64), index=True)
     country_code: Mapped[str | None] = mapped_column(String(2))
     rank: Mapped[int | None] = mapped_column(Integer)

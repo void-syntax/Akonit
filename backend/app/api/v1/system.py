@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Query
 from sqlalchemy import Text, cast, func, or_, select
 
@@ -135,7 +137,9 @@ async def discover(
     statement = select(Signal).where(
         Signal.status.in_(
             [SignalStatus.NEW, SignalStatus.RISING, SignalStatus.BREAKOUT]
-        )
+        ),
+        Signal.first_seen_at
+        >= datetime.now(UTC) - timedelta(hours=settings.signal_ttl_hours),
     )
     # Same semantics as the main feed: lists, so several countries or sources can
     # be picked at once, and everything filters in SQL so the count and the items

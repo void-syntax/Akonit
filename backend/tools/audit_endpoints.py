@@ -34,6 +34,22 @@ async def main() -> int:
 
     get_settings.cache_clear()
 
+    # The engine is created when app.db.session is imported. Rebuild it after
+    # setting the throwaway database URL so this audit never touches the user's DB.
+    from app.db import session as db_session
+    from app.core import database as db_core
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    await db_core.engine.dispose()
+    db_core.database_url = os.environ["DATABASE_URL"]
+    db_core.engine = db_core._build_engine(db_core.database_url)
+    db_core.SessionLocal = async_sessionmaker(
+        db_core.engine, expire_on_commit=False, class_=db_core.AsyncSession
+    )
+    db_session.engine = db_core.engine
+    db_session.database_url = db_core.database_url
+    db_session.SessionLocal = db_core.SessionLocal
+
     from app.db.session import SessionLocal, engine, init_models
     from app.main import app
     from app.models import Signal
