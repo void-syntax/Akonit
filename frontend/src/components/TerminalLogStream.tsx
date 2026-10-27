@@ -10,12 +10,20 @@ interface LogItem {
 }
 
 export function TerminalLogStream() {
-  const [logs, setLogs] = useState<LogItem[]>([
-    { id: 1, timestamp: new Date().toLocaleTimeString(), message: "Neural attention matrix initialized.", level: "info" },
-    { id: 2, timestamp: new Date().toLocaleTimeString(), message: "LSH Forest index active (230 test vectors).", level: "success" },
-  ]);
+  const [mounted, setMounted] = useState(false);
+  const [logs, setLogs] = useState<LogItem[]>([]);
 
   useEffect(() => {
+    setMounted(true);
+    const nowStr = new Date().toLocaleTimeString();
+    setLogs([
+      { id: 1, timestamp: nowStr, message: "Neural attention matrix initialized.", level: "info" },
+      { id: 2, timestamp: nowStr, message: "LSH Forest index active (230 test vectors).", level: "success" },
+    ]);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     let eventSource: EventSource | null = null;
     let counter = 3;
     try {
@@ -39,7 +47,13 @@ export function TerminalLogStream() {
     return () => {
       if (eventSource) eventSource.close();
     };
-  }, []);
+  }, [mounted]);
+
+  if (!mounted) {
+    return (
+      <div style={{ background: "#09090b", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "16px", fontFamily: "monospace", fontSize: "12px", color: "#a1a1aa", margin: "16px 0", height: "120px" }} />
+    );
+  }
 
   return (
     <div style={{ background: "#09090b", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "16px", fontFamily: "monospace", fontSize: "12px", color: "#a1a1aa", margin: "16px 0" }}>
