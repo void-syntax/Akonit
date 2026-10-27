@@ -108,6 +108,7 @@ class Settings(BaseSettings):
     vapid_private_key: str = ""
     vapid_subject: str = "mailto:admin@example.com"
     telegram_bot_token: str | None = None
+    telegram_token_encryption_key: str | None = None
 
     # --- retention ---
     # A signal is only interesting while it is fresh. Anything a user saved is

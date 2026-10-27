@@ -21,6 +21,7 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "quiet_hours": "JSON",
         "theme": "VARCHAR(16) DEFAULT 'dark'",
         "telegram_chat_id": "VARCHAR(64)",
+        "telegram_bot_token_encrypted": "TEXT",
         "telegram_alerts_enabled": "BOOLEAN DEFAULT 0",
         "onboarded": "BOOLEAN DEFAULT 0",
         "default_frequency": "VARCHAR(32) DEFAULT 'instant'",
@@ -53,9 +54,11 @@ async def apply_migrations(engine: AsyncEngine) -> list[str]:
     async with engine.begin() as conn:
         tables = {
             row[0]
-            for row in (await conn.execute(
-                text("SELECT name FROM sqlite_master WHERE type='table'")
-            )).all()
+            for row in (
+                await conn.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table'")
+                )
+            ).all()
         }
 
         for table, columns in MIGRATIONS.items():
@@ -76,9 +79,11 @@ async def apply_migrations(engine: AsyncEngine) -> list[str]:
         # Keep the hash lookup cheap once event history grows. Index creation is
         # idempotent and does not rebuild or rewrite the existing SQLite table.
         if "source_events" in tables and "text_hash" in MIGRATIONS["source_events"]:
-            await conn.execute(text(
-                'CREATE INDEX IF NOT EXISTS "ix_source_events_text_hash" '
-                'ON "source_events" ("text_hash")'
-            ))
+            await conn.execute(
+                text(
+                    'CREATE INDEX IF NOT EXISTS "ix_source_events_text_hash" '
+                    'ON "source_events" ("text_hash")'
+                )
+            )
 
     return applied

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.secrets import decrypt_secret
 from app.core.logging import get_logger
 from app.models import (
     NotificationDelivery,
@@ -145,6 +146,8 @@ async def notify_matches(
     if queued:
         logger.info("queued %d notifications", queued)
     return queued
+
+
 async def flush_deliveries(session: AsyncSession, limit: int = 50) -> dict:
     """Send everything that is due. Failures are recorded, never fatal.
 
@@ -154,23 +157,33 @@ async def flush_deliveries(session: AsyncSession, limit: int = 50) -> dict:
     """
     now = datetime.now(UTC)
 
-    pending_q = (
-        select(NotificationDelivery)
-        .where(
-            NotificationDelivery.status == DeliveryStatus.PENDING,
-            NotificationDelivery.scheduled_for <= now,
-        )
+    pending_q = select(NotificationDelivery).where(
+        NotificationDelivery.status == DeliveryStatus.PENDING,
+        NotificationDelivery.scheduled_for <= now,
     )
-    failed_q = (
-        select(NotificationDelivery)
-        .where(
-            NotificationDelivery.status == DeliveryStatus.FAILED,
-            NotificationDelivery.attempts < 3,
-        )
+    failed_q = select(NotificationDelivery).where(
+        NotificationDelivery.status == DeliveryStatus.FAILED,
+        NotificationDelivery.attempts < 3,
     )
 
-    pending_rows = (await session.execute(pending_q.order_by(NotificationDelivery.created_at).limit(limit))).scalars().all()
-    failed_rows = (await session.execute(failed_q.order_by(NotificationDelivery.created_at).limit(limit))).scalars().all()
+    pending_rows = (
+        (
+            await session.execute(
+                pending_q.order_by(NotificationDelivery.created_at).limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    failed_rows = (
+        (
+            await session.execute(
+                failed_q.order_by(NotificationDelivery.created_at).limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     # Merge, deduplicate by id, preserve order (pending first)
     seen_ids: set = set()
@@ -207,7 +220,9 @@ async def flush_deliveries(session: AsyncSession, limit: int = 50) -> dict:
             p.user_id: p
             for p in (
                 await session.execute(
-                    select(UserProfile).where(UserProfile.user_id.in_(delivery_user_ids))
+                    select(UserProfile).where(
+                        UserProfile.user_id.in_(delivery_user_ids)
+                    )
                 )
             )
             .scalars()
@@ -224,14 +239,22 @@ async def flush_deliveries(session: AsyncSession, limit: int = 50) -> dict:
                 continue
 
             delivery.attempts += 1
-            signal = signals_cache.get(delivery.signal_id) if delivery.signal_id else None
+            signal = (
+                signals_cache.get(delivery.signal_id) if delivery.signal_id else None
+            )
             if signal is None:
                 delivery.status = DeliveryStatus.SKIPPED
                 continue
             try:
                 if delivery.channel == NotificationChannel.TELEGRAM:
-                    await _send_telegram_cached(session, delivery, signal, telegram, profiles_cache)
-                elif delivery.channel in (NotificationChannel.DISCORD, NotificationChannel.SLACK, NotificationChannel.WEBHOOK):
+                    await _send_telegram_cached(
+                        session, delivery, signal, telegram, profiles_cache
+                    )
+                elif delivery.channel in (
+                    NotificationChannel.DISCORD,
+                    NotificationChannel.SLACK,
+                    NotificationChannel.WEBHOOK,
+                ):
                     await dispatch_webhook_notification(session, delivery, signal)
                 else:
                     await _send_push(session, delivery, signal)
@@ -248,6 +271,8 @@ async def flush_deliveries(session: AsyncSession, limit: int = 50) -> dict:
     if hasattr(session, "flush"):
         await session.flush()
     return {"sent": sent, "failed": failed, "processed": len(rows)}
+
+
 async def _send_telegram(session, delivery, signal, telegram) -> None:
     profile = (
         await session.execute(
@@ -262,10 +287,16 @@ async def _send_telegram(session, delivery, signal, telegram) -> None:
         delivery.status = DeliveryStatus.SKIPPED
         delivery.error = "telegram alerts disabled by user"
         return
-    if not telegram.configured:
+    token = (
+        decrypt_secret(profile.telegram_bot_token_encrypted)
+        if profile.telegram_bot_token_encrypted
+        else settings.telegram_bot_token
+    )
+    if not token:
         delivery.status = DeliveryStatus.SKIPPED
         delivery.error = "TELEGRAM_BOT_TOKEN not configured"
         return
+    telegram.token = token
     await telegram.send(
         profile.telegram_chat_id,
         format_signal_alert(signal, delivery.payload.get("radar")),
@@ -296,10 +327,16 @@ async def _send_telegram_cached(
         delivery.status = DeliveryStatus.SKIPPED
         delivery.error = "telegram alerts disabled by user"
         return
-    if not telegram.configured:
+    token = (
+        decrypt_secret(profile.telegram_bot_token_encrypted)
+        if profile.telegram_bot_token_encrypted
+        else settings.telegram_bot_token
+    )
+    if not token:
         delivery.status = DeliveryStatus.SKIPPED
         delivery.error = "TELEGRAM_BOT_TOKEN not configured"
         return
+    telegram.token = token
     await telegram.send(
         profile.telegram_chat_id,
         format_signal_alert(signal, delivery.payload.get("radar")),

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.signal import Signal
+from app.models.signals import Signal
 from app.core.logging import get_logger
 
 logger = get_logger("app.pipeline.hybrid_search")
@@ -28,12 +28,15 @@ class HybridSearchEngine:
         if not query or not query.strip():
             # Fallback to standard feed ordered by strength
             result = await session.execute(
-                select(Signal).order_by(Signal.strength.desc()).limit(limit).offset(offset)
+                select(Signal)
+                .order_by(Signal.strength.desc())
+                .limit(limit)
+                .offset(offset)
             )
             return list(result.scalars().all())
 
         sanitized = query.replace('"', '""').strip()
-        
+
         # 1. Exact FTS match or LIKE fallback if FTS table is absent
         try:
             sql = text(
@@ -54,7 +57,7 @@ class HybridSearchEngine:
             # Fetch actual Signal models in order
             sig_res = await session.execute(
                 select(Signal).where(Signal.id.in_(signal_ids))
-            }
+            )
             signal_map = {s.id: s for s in sig_res.scalars().all()}
             return [signal_map[sid] for sid in signal_ids if sid in signal_map]
         except Exception as exc:

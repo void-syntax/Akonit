@@ -7,9 +7,11 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.core.config import settings
+from app.core.secrets import decrypt_secret, encrypt_secret
 from app.models import NotificationDelivery, NotificationPreference, Radar, UserProfile
 from app.models.enums import DeliveryStatus, NotificationChannel
 from app.schemas.api import ORMModel
+from app.notifications.telegram import TelegramClient
 from datetime import datetime
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -58,9 +60,7 @@ async def list_preferences(session: SessionDep, user: CurrentUser):
 
 
 @router.put("/preferences", response_model=PreferenceOut)
-async def upsert_preference(
-    payload: dict, session: SessionDep, user: CurrentUser
-):
+async def upsert_preference(payload: dict, session: SessionDep, user: CurrentUser):
     radar_id = payload.get("radar_id")
     if not radar_id:
         raise HTTPException(status_code=400, detail="radar_id is required")
@@ -88,7 +88,9 @@ async def upsert_preference(
     ).scalar_one_or_none()
 
     if row is None:
-        row = NotificationPreference(user_id=user.id, radar_id=radar_id, channel=channel)
+        row = NotificationPreference(
+            user_id=user.id, radar_id=radar_id, channel=channel
+        )
         session.add(row)
 
     row.enabled = bool(payload.get("enabled", True))
@@ -116,9 +118,7 @@ async def list_deliveries(session: SessionDep, user: CurrentUser, limit: int = 5
 
 
 @router.post("/push/subscribe")
-async def subscribe_push(
-    payload: dict, user: CurrentUser, session: SessionDep
-):
+async def subscribe_push(payload: dict, user: CurrentUser, session: SessionDep):
     """Register a browser push subscription for this user."""
     endpoint = payload.get("endpoint")
     keys = payload.get("keys") or {}
@@ -146,9 +146,7 @@ async def subscribe_push(
 
 
 @router.delete("/push/subscribe")
-async def unsubscribe_push(
-    payload: dict, user: CurrentUser, session: SessionDep
-):
+async def unsubscribe_push(payload: dict, user: CurrentUser, session: SessionDep):
     endpoint = payload.get("endpoint")
     profile = user.profile
     if profile is None:
@@ -174,9 +172,103 @@ async def telegram_status(user: CurrentUser):
         "linked": bool(profile and profile.telegram_chat_id),
         "chat_id": profile.telegram_chat_id if profile else None,
         "alerts_enabled": bool(profile and profile.telegram_alerts_enabled),
-        "bot_configured": bool(settings.telegram_bot_token),
+        "bot_configured": bool(profile and profile.telegram_bot_token_encrypted)
+        or bool(settings.telegram_bot_token),
         "push_configured": bool(settings.vapid_private_key),
     }
+
+
+@router.put("/telegram/bot")
+async def configure_telegram_bot(payload: dict, user: CurrentUser, session: SessionDep):
+    token = str(payload.get("token") or "").strip()
+    if not token or len(token) > 256 or ":" not in token:
+        raise HTTPException(
+            status_code=400, detail="Enter a valid token from @BotFather"
+        )
+    try:
+        encrypted = encrypt_secret(token)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail="Telegram token encryption is not configured"
+        ) from exc
+    async with TelegramClient(token=token) as telegram:
+        try:
+            bot = await telegram.verify()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400, detail="Telegram rejected this bot token"
+            ) from exc
+    profile = user.profile
+    if profile is None:
+        profile = UserProfile(user_id=user.id)
+        session.add(profile)
+    profile.telegram_bot_token_encrypted = encrypted
+    await session.commit()
+    return {"ok": True, "bot_username": bot.get("username")}
+
+
+@router.delete("/telegram/bot")
+async def remove_telegram_bot(user: CurrentUser, session: SessionDep):
+    profile = user.profile
+    if profile:
+        profile.telegram_bot_token_encrypted = None
+        profile.telegram_alerts_enabled = False
+        await session.commit()
+    return {"ok": True}
+
+
+@router.post("/telegram/test")
+async def test_telegram(user: CurrentUser):
+    profile = user.profile
+    if not profile or not profile.telegram_chat_id:
+        raise HTTPException(
+            status_code=400, detail="Enter and save your Telegram chat ID first"
+        )
+    try:
+        token = (
+            decrypt_secret(profile.telegram_bot_token_encrypted)
+            if profile.telegram_bot_token_encrypted
+            else settings.telegram_bot_token
+        )
+        if not token:
+            raise ValueError("No Telegram bot is configured")
+        async with TelegramClient(token=token) as telegram:
+            await telegram.send_test(profile.telegram_chat_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Test message failed; check that you started the bot and the chat ID is correct",
+        ) from exc
+    return {"ok": True}
+
+
+@router.post("/telegram/find-chat")
+async def find_telegram_chat(user: CurrentUser):
+    profile = user.profile
+    if not profile:
+        raise HTTPException(status_code=400, detail="Connect your Telegram bot first")
+    try:
+        token = (
+            decrypt_secret(profile.telegram_bot_token_encrypted)
+            if profile.telegram_bot_token_encrypted
+            else settings.telegram_bot_token
+        )
+        if not token:
+            raise ValueError("No Telegram bot is configured")
+        async with TelegramClient(token=token) as telegram:
+            result = await telegram.find_latest_private_chat()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not read Telegram messages; check the bot settings",
+        ) from exc
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No message found. Open your bot in Telegram and press Start first.",
+        )
+    chat_id, name = result
+    return {"chat_id": chat_id, "name": name}
 
 
 @router.post("/telegram/toggle")

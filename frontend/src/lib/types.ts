@@ -209,6 +209,7 @@ export interface Profile {
   timezone: string;
   language: string;
   telegram_chat_id: string | null;
+  telegram_alerts_enabled: boolean;
   default_frequency: NotificationFrequency;
   onboarded: boolean;
   signal_threshold: number;
@@ -256,4 +257,5 @@ export interface NotificationStatus {
   bot_configured?: boolean;
   linked?: boolean;
   chat_id?: string | null;
+  alerts_enabled?: boolean;
 }

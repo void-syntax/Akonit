@@ -22,6 +22,8 @@ if (-not (Test-Path "$BackendDir\.env")) {
     Copy-Item "$BackendDir\.env.example" "$BackendDir\.env"
     Write-Host "Created backend/.env from safe defaults." -ForegroundColor Gray
 }
+
+$backendEnv = "$BackendDir\.env"
 if (-not (Test-Path "$ProjectRoot\.env")) {
     Copy-Item "$ProjectRoot\.env.example" "$ProjectRoot\.env"
     Write-Host "Created root .env for Docker Compose defaults." -ForegroundColor Gray
@@ -42,6 +44,18 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing backend packages (first run or after an update)..." -ForegroundColor Yellow
     & $Python -m pip install -r $Requirements
     if ($LASTEXITCODE -ne 0) { throw "Backend dependency installation failed." }
+}
+
+# Dependency installation may have just made Fernet available on first run.
+if (-not (Select-String -Path $backendEnv -Pattern '^TELEGRAM_TOKEN_ENCRYPTION_KEY=.{40,}$' -Quiet)) {
+    $fernetKey = (& $Python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+    $existingEnv = Get-Content $backendEnv -Raw
+    if ($existingEnv -match '(?m)^TELEGRAM_TOKEN_ENCRYPTION_KEY=.*$') {
+        $existingEnv = [regex]::Replace($existingEnv, '(?m)^TELEGRAM_TOKEN_ENCRYPTION_KEY=.*$', "TELEGRAM_TOKEN_ENCRYPTION_KEY=$fernetKey")
+        Set-Content -Path $backendEnv -Value $existingEnv -NoNewline
+    } else {
+        Add-Content -Path $backendEnv -Value "`nTELEGRAM_TOKEN_ENCRYPTION_KEY=$fernetKey"
+    }
 }
 
 if (-not (Test-Path "$FrontendModules\next\dist\bin\next")) {

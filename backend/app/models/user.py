@@ -28,7 +28,9 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     profile: Mapped["UserProfile | None"] = relationship(
@@ -50,6 +52,7 @@ class UserProfile(Base):
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     language: Mapped[str] = mapped_column(String(8), default="en")
     telegram_chat_id: Mapped[str | None] = mapped_column(String(64))
+    telegram_bot_token_encrypted: Mapped[str | None] = mapped_column(Text)
     telegram_alerts_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     default_frequency: Mapped[NotificationFrequency] = mapped_column(
         SAEnum(NotificationFrequency), default=NotificationFrequency.INSTANT
@@ -64,6 +67,8 @@ class UserProfile(Base):
     default_tags: Mapped[list] = mapped_column(JSON, default=list)
     quiet_hours: Mapped[dict | None] = mapped_column(JSON, default=None)
     theme: Mapped[str] = mapped_column(String(16), default="dark")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
 
     user: Mapped[User] = relationship(back_populates="profile")

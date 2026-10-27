@@ -341,7 +341,8 @@ To let `collect.yml` run, add these repository secrets under
 | `SECRET_KEY` | yes | JWT signing |
 | `GITHUB_TOKEN` | no | raises the GitHub limit 60 → 5000 req/h |
 | `HF_TOKEN` | no | private Hub models |
-| `TELEGRAM_BOT_TOKEN` | no | Telegram notifications |
+| `TELEGRAM_BOT_TOKEN` | no | Optional shared bot for legacy deployments; users can connect their own bot in Settings |
+| `TELEGRAM_TOKEN_ENCRYPTION_KEY` | required for per-user Telegram bots | Fernet key used to encrypt user bot tokens in the database. `start.bat` creates a local key automatically. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | no | web push |
 
 `collect.yml` can also be triggered by hand (**Run workflow**) with a
@@ -443,7 +444,8 @@ All optional. With an empty `.env` the system already runs on free public data.
 | `YOUTUBE_API_KEY` | unlocks Data API v3 (quota-aware) |
 | `TIKTOK_API_TOKEN` | unlocks official Creative Center API |
 | `INSTAGRAM_ACCESS_TOKEN` + `META_APP_ID` | unlocks Instagram |
-| `TELEGRAM_BOT_TOKEN` | enables Telegram notifications |
+| `TELEGRAM_BOT_TOKEN` | optional shared Telegram bot; each local user can also connect a private bot in Settings |
+| `TELEGRAM_TOKEN_ENCRYPTION_KEY` | encrypts personal bot tokens stored in the database; keep it private and persistent |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | enables web push |
 | `REDIS_URL` | pub/sub; falls back to an in-memory bus |
 

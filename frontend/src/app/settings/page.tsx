@@ -57,6 +57,8 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chatId, setChatId] = useState("");
+  const [telegramToken, setTelegramToken] = useState("");
+  const [telegramMessage, setTelegramMessage] = useState<string | null>(null);
   const [pushState, setPushState] = useState<"idle" | "on" | "unsupported">(
     "idle",
   );
@@ -153,6 +155,63 @@ export default function SettingsPage() {
       setStatus(await api.notificationStatus());
     } catch {
       /* status refresh is optional */
+    }
+  }
+
+  async function configureTelegram() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.configureTelegramBot(telegramToken);
+      setTelegramToken("");
+      setStatus(await api.notificationStatus());
+      setTelegramMessage(result.bot_username ? `Connected to @${result.bot_username}. Save the chat ID and send a test.` : "Bot connected. Save the chat ID and send a test.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not connect Telegram bot");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function testTelegram() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.testTelegram();
+      setTelegramMessage("Test message sent. Open Telegram to confirm it arrived.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Telegram test failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function findTelegramChat() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.findTelegramChat();
+      setChatId(result.chat_id);
+      setTelegramMessage(`Found Telegram chat${result.name ? ` for ${result.name}` : ""}. Save it, then send a test.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not find Telegram chat");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleTelegram() {
+    if (!profile) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.toggleTelegram(!profile.telegram_alerts_enabled);
+      setProfile(await api.profile());
+      setStatus(await api.notificationStatus());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update Telegram alerts");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -318,32 +377,24 @@ export default function SettingsPage() {
           </button>
         </div>
 
-        <div className="row" style={{ marginTop: "var(--s4)" }}>
-          <div>
-            <div className="step-title">Telegram</div>
-            <div className="field-hint">
-              {status?.bot_configured
-                ? status.linked
-                  ? `Linked to chat ${status.chat_id}`
-                  : "Bot token is set. Paste your chat ID below."
-                : "TELEGRAM_BOT_TOKEN is not set in .env."}
-            </div>
+        <div className="field" style={{ marginTop: "var(--s4)" }}>
+          <div className="step-title">Telegram alerts</div>
+          <div className="field-hint">Create a bot with @BotFather, open it and press Start. Your token is encrypted locally and never shown again.</div>
+          {telegramMessage && <div className="field-hint" role="status">{telegramMessage}</div>}
+          <div className="row" style={{ marginTop: 8 }}>
+            <input aria-label="Telegram bot token" type="password" autoComplete="new-password" placeholder={status?.bot_configured ? "Bot connected — enter a new token to replace" : "Paste token from @BotFather"} value={telegramToken} onChange={(e) => setTelegramToken(e.target.value)} style={{ flex: 1 }} />
+            <button className="btn btn-primary" onClick={configureTelegram} disabled={busy || !telegramToken.trim()} type="button">Verify and save bot</button>
           </div>
-          <div className="spacer" />
-          <input
-            placeholder="Chat ID"
-            value={chatId}
-            onChange={(e) => setChatId(e.target.value)}
-            style={{ maxWidth: 170 }}
-          />
-          <button
-            className="btn btn-primary"
-            onClick={linkTelegram}
-            disabled={busy || !chatId}
-            type="button"
-          >
-            Link
-          </button>
+          <div className="row" style={{ marginTop: 8 }}>
+            <input aria-label="Telegram chat ID" inputMode="numeric" placeholder="Your numeric chat ID" value={chatId} onChange={(e) => setChatId(e.target.value)} style={{ maxWidth: 220 }} />
+            <button className="btn" onClick={findTelegramChat} disabled={busy || !status?.bot_configured} type="button">Find my chat</button>
+            <button className="btn" onClick={linkTelegram} disabled={busy || !chatId.trim()} type="button">Save chat ID</button>
+            <button className="btn" onClick={testTelegram} disabled={busy || !status?.bot_configured || !status.linked} type="button">Send test</button>
+          </div>
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="chip" data-active={profile.telegram_alerts_enabled} disabled={busy || !status?.bot_configured || !status.linked} onClick={toggleTelegram} type="button">Alerts {profile.telegram_alerts_enabled ? "ON" : "OFF"}</button>
+            <span className="field-hint">Send /start to your bot first, then use Find my chat.</span>
+          </div>
         </div>
       </div>
 

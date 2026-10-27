@@ -100,6 +100,47 @@ class TelegramClient:
             f"telegram send failed after {RETRY_ATTEMPTS} attempts: {last_exc}"
         )
 
+    async def verify(self) -> dict:
+        """Validate this token and return safe, non-secret bot details."""
+        if not self.token:
+            raise ValueError("Telegram bot token is empty")
+        response = await self._client.get(f"{TELEGRAM_API}/bot{self.token}/getMe")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError("Telegram returned an invalid response") from exc
+        if response.status_code >= 400 or not payload.get("ok"):
+            raise ValueError("Telegram rejected this bot token")
+        bot = payload.get("result") or {}
+        return {"username": bot.get("username"), "first_name": bot.get("first_name")}
+
+    async def send_test(self, chat_id: str) -> None:
+        await self.send(
+            chat_id, "✅ Signal Radar: Telegram notifications are connected."
+        )
+
+    async def find_latest_private_chat(self) -> tuple[str, str | None] | None:
+        """Find the latest private chat that sent this bot a message."""
+        if not self.token:
+            raise ValueError("Telegram bot token is empty")
+        response = await self._client.get(
+            f"{TELEGRAM_API}/bot{self.token}/getUpdates",
+            params={"limit": 20, "allowed_updates": '["message"]'},
+        )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError("Telegram returned an invalid response") from exc
+        if response.status_code >= 400 or not payload.get("ok"):
+            raise ValueError("Telegram could not read bot updates")
+        for update in reversed(payload.get("result") or []):
+            message = update.get("message") or {}
+            chat = message.get("chat") or {}
+            if chat.get("type") == "private" and chat.get("id") is not None:
+                name = chat.get("first_name") or chat.get("username")
+                return str(chat["id"]), name
+        return None
+
     async def register_webhook(self, url: str) -> bool:
         if not self.token:
             return False

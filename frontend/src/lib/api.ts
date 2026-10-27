@@ -190,6 +190,28 @@ export const api = {
 
   notificationStatus: () => request<NotificationStatus>("/notifications/telegram/status"),
 
+  configureTelegramBot: (token: string) =>
+    request<{ ok: boolean; bot_username?: string }>("/notifications/telegram/bot", {
+      method: "PUT",
+      body: JSON.stringify({ token }),
+    }),
+
+  removeTelegramBot: () =>
+    request<{ ok: boolean }>("/notifications/telegram/bot", { method: "DELETE" }),
+
+  testTelegram: () =>
+    request<{ ok: boolean }>("/notifications/telegram/test", { method: "POST" }),
+
+  findTelegramChat: () =>
+    request<{ chat_id: string; name?: string | null }>("/notifications/telegram/find-chat", {
+      method: "POST",
+    }),
+
+  toggleTelegram: (enabled: boolean) =>
+    request<{ ok: boolean; telegram_alerts_enabled: boolean }>(
+      `/notifications/telegram/toggle?enabled=${enabled}`, { method: "POST" },
+    ),
+
   linkTelegram: (chatId: string) =>
     request<{ ok: boolean }>(`/notifications/telegram/link${qs({ chat_id: chatId })}`, {
       method: "POST",
