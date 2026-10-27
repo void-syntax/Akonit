@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { FilterSelect } from "@/components/FilterSelect";
 import { IntroHero } from "@/components/IntroHero";
+import { TerminalLogStream } from "@/components/TerminalLogStream";
 import { SignalCard, SignalCardSkeleton } from "@/components/SignalCard";
 import { SkeletonList } from "@/components/SkeletonList";
 import { api, type FeedQuery } from "@/lib/api";
@@ -186,6 +187,8 @@ export default function FeedPage() {
       <IntroHero stats={stats} firstRun={radars.length === 0} />
 
       <div id="feed">
+        <TerminalLogStream />
+
         <div className="section-title">
           Live signals
           <span className="live" data-state={liveState}>
