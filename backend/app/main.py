@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, notifications, radars, signals, stream, system, taxonomy, telemetry
+from app.api.v1 import auth, notifications, radars, signals, sse, stream, system, taxonomy, telemetry
 from app.core.cache import close_cache
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -144,6 +144,7 @@ app.include_router(signals.saved_router, prefix=API)
 app.include_router(notifications.router, prefix=API)
 app.include_router(system.router, prefix=API)
 app.include_router(stream.router, prefix=API)
+app.include_router(sse.router, prefix=API)
 app.include_router(telemetry.router, prefix=API)
 
 
