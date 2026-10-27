@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import { ToastProvider } from "@/components/Toast";
 import { CyberHUDControl } from "@/components/CyberHUDControl";
+import { CommandPaletteModal } from "@/components/CommandPaletteModal";
 
 import "./globals.css";
 
@@ -33,6 +34,7 @@ export default function RootLayout({
         <ToastProvider>
           <AppShell>{children}</AppShell>
           <CyberHUDControl />
+          <CommandPaletteModal />
         </ToastProvider>
       </body>
     </html>
