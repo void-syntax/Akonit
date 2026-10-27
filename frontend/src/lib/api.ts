@@ -308,4 +308,6 @@ export const api = {
       service: string;
       status: string;
     }>("/admin/stats"),
+
+  telemetryMetrics: () => request<any>("/telemetry/metrics"),
 };

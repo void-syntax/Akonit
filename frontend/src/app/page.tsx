@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FilterSelect } from "@/components/FilterSelect";
 import { IntroHero } from "@/components/IntroHero";
 import { TerminalLogStream } from "@/components/TerminalLogStream";
+import { AnalyticsMiniBanner } from "@/components/AnalyticsMiniBanner";
 import { SignalCard, SignalCardSkeleton } from "@/components/SignalCard";
 import { SkeletonList } from "@/components/SkeletonList";
 import { api, type FeedQuery } from "@/lib/api";
@@ -188,6 +189,7 @@ export default function FeedPage() {
 
       <div id="feed">
         <TerminalLogStream />
+        <AnalyticsMiniBanner />
 
         <div className="section-title">
           Live signals
