@@ -204,7 +204,10 @@ export function SignalCard({ signal, onChange, onDelete }: Props) {
 
       {signal.cross_source_count > 1 && (
         <div className="card-tags card-evidence">
-          <span className="tag-chip" title="Observed by more than one source">
+          <span
+            className="tag-chip"
+            title="Detected on multiple sources; this alone does not prove independent confirmation."
+          >
             <LayersIcon size={12} />
             {signal.cross_source_count} sources
           </span>
@@ -218,7 +221,7 @@ export function SignalCard({ signal, onChange, onDelete }: Props) {
 
         <span
           className="strength"
-          title={`Signal strength ${Math.round(signal.strength)}/100`}
+          title={`Activity ranking ${Math.round(signal.strength)}/100. It is not a probability; source counts do not prove independent confirmation.`}
         >
           <span className="strength-label">Strength</span>
           <span className="strength-bar">

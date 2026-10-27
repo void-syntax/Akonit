@@ -93,8 +93,6 @@ async def admin_stats(session: SessionDep):
 
     # Import metrics to read sample values/counts
     from app.core.metrics import (
-        signals_ingested_total,
-        signals_noise_filtered_total,
         active_websocket_connections,
         cache_hits_total,
         cache_misses_total,
@@ -261,22 +259,23 @@ async def collect_now(session: SessionDep, _user: CurrentUser, countries: str | 
     }
 
 
-# Global pause flag for worker collection
-_WORKER_PAUSED = False
-
 @router.post("/system/pause")
 async def pause_worker(_user: CurrentUser):
-    global _WORKER_PAUSED
-    _WORKER_PAUSED = True
+    from app.core.worker_control import set_worker_paused
+
+    set_worker_paused(True)
     return {"status": "paused"}
 
 @router.post("/system/resume")
 async def resume_worker(_user: CurrentUser):
-    global _WORKER_PAUSED
-    _WORKER_PAUSED = False
+    from app.core.worker_control import set_worker_paused
+
+    set_worker_paused(False)
     return {"status": "running"}
 
 @router.get("/system/worker-status")
 async def get_worker_status():
-    global _WORKER_PAUSED
-    return {"running": not _WORKER_PAUSED, "paused": _WORKER_PAUSED}
+    from app.core.worker_control import is_worker_paused
+
+    paused = is_worker_paused()
+    return {"running": not paused, "paused": paused}

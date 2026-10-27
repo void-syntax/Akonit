@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { TelemetryPulseBadge } from "@/components/TelemetryPulseBadge";
 
 export function StatusBar() {
   const [timeStr, setTimeStr] = useState<string>("");
@@ -59,7 +58,6 @@ export function StatusBar() {
         </button>
       </div>
       {error && <span className="statusbar-error" role="status">{error}</span>}
-      <TelemetryPulseBadge />
       <div className="statusbar-version">
         INTELLIGENCE TERMINAL v2.4 // LAYA AI ENGINE
       </div>

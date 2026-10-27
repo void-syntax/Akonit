@@ -2433,3 +2433,37 @@ body {
   .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; }
   .hero-stats > div:nth-child(3) { border-left: 0; padding-left: 0; }
 }
+
+.hud-control button:focus-visible,
+.command-palette-trigger:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  .hud-control { bottom: calc(var(--nav-h) + 16px) !important; right: 12px !important; }
+  .command-palette-trigger { bottom: calc(var(--nav-h) + 16px) !important; left: 12px !important; }
+}
+
+@media (max-width: 380px) {
+  .hud-control { gap: 5px !important; padding: 6px 7px !important; }
+  .hud-control > span { display: none; }
+}
+
+.feed-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 28px;
+}
+
+.feed-load-more .btn {
+  min-width: min(100%, 280px);
+  min-height: 44px;
+  border-color: var(--brand-line);
+  color: var(--brand-strong);
+  background: var(--brand-soft);
+}
+
+.feed-load-more .btn:disabled {
+  cursor: wait;
+}

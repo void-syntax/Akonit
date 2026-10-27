@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.encoders import jsonable_encoder
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -20,7 +21,12 @@ from app.pipeline.collectors.http_client import HttpClient
 from app.pipeline.collectors.registry import all_adapters, run_strategy_cascade
 from app.pipeline.dedup.dedup import ClusterCandidate, find_cluster
 from app.pipeline.detection.lifecycle import classify
-from app.pipeline.detection.metrics import ActivityPoint, compute_growth_acceleration
+from app.pipeline.detection.metrics import (
+    ActivityPoint,
+    activity_metrics_comparable,
+    compute_growth_acceleration,
+    include_current_observation,
+)
 from app.pipeline.detection.scoring import strength_components
 from app.pipeline.matching.tag_matcher import build_default_matcher
 from app.pipeline.normalization.normalizer import (
@@ -355,7 +361,7 @@ async def _process_event(
         raw_title=event.title[:500],
         raw_activity=event.activity,
         activity_metric=event.activity_metric,
-        raw_payload=event.metadata or {},
+        raw_payload=jsonable_encoder(event.metadata or {}),
         canonical_url=canonical_url,
         fingerprint=fp,
         text_hash=f"{content_hash:016x}",
@@ -459,15 +465,18 @@ async def _process_event(
         stats.signals_created += 1
         signals_ingested_total.labels(source_id=event.source_id).inc()
     else:
-        signal.previous_activity = signal.current_activity
-        # Compare like-for-like measurements. Keeping a historical maximum
-        # suppresses real slowdowns and makes cumulative counters look like
-        # persistent growth; a different source/metric must not overwrite the
-        # signal's existing measurement with an incomparable unit.
-        if signal.activity_metric == event.activity_metric:
+        # Only compare activity values that share a unit. A secondary source
+        # still counts as detection evidence, but its unrelated counter must
+        # not replace or inflate the primary source's trend measurement.
+        comparable_metric = activity_metrics_comparable(
+            signal.source_id,
+            signal.activity_metric,
+            event.source_id,
+            event.activity_metric,
+        )
+        if comparable_metric:
+            signal.previous_activity = signal.current_activity
             signal.current_activity = event.activity
-        else:
-            signal.current_activity = max(signal.current_activity, event.activity)
         signal.last_seen_at = aware(event.observed_at)
         stats.signals_updated += 1
 
@@ -539,27 +548,37 @@ async def _recompute(
             await session.execute(
                 select(SignalSnapshot)
                 .where(SignalSnapshot.signal_id == signal.id)
-                .order_by(SignalSnapshot.captured_at)
+                .order_by(SignalSnapshot.captured_at.desc())
+                .limit(100)
             )
         )
         .scalars()
         .all()
     )
+    history.reverse()
 
     points = [
         ActivityPoint(captured_at=aware(s.captured_at), activity=s.activity)
         for s in history
     ]
-    if not points:
+    if points:
+        points = include_current_observation(
+            points,
+            captured_at=snapshot_time,
+            activity=signal.current_activity,
+        )
+    else:
+        # The first observed value is a starting point, not evidence of growth.
         points = [
-            ActivityPoint(
-                captured_at=aware(signal.first_seen_at),
-                activity=signal.current_activity,
-            )
+            ActivityPoint(captured_at=snapshot_time, activity=signal.current_activity)
         ]
 
     metrics = compute_growth_acceleration(
         points, now=snapshot_time, window_minutes=WINDOW_MINUTES,
+    )
+    metrics.age_minutes = max(
+        (snapshot_time - aware(signal.first_seen_at)).total_seconds() / 60,
+        WINDOW_MINUTES,
     )
     status, strength = classify(
         metrics,
@@ -584,6 +603,14 @@ async def _recompute(
     signal.age_minutes = round(metrics.age_minutes, 1)
 
     if not record_snapshot:
+        return
+
+    # Store no more than one durable sample per configured history interval.
+    # Scoring still uses the live observation above, while this keeps the
+    # append-only chart table small on long-lived saved signals.
+    if history and (snapshot_time - aware(history[-1].captured_at)).total_seconds() < max(
+        settings.snapshot_interval_seconds, 1
+    ):
         return
 
     session.add(

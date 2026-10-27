@@ -9,9 +9,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.session import Base
 from app.models import Signal, SourceEvent
-from app.pipeline.dlq import DeadLetterQueue, FailedSignal, compute_content_hash
+from app.pipeline.dlq import DeadLetterQueue
 from app.pipeline.collectors.base import RawEvent
-from app.services.pipeline_service import _process_event, PipelineStats, ClusterCandidate, build_default_matcher
+from app.services.pipeline_service import _process_event, PipelineStats, build_default_matcher
 
 
 @pytest.fixture
@@ -52,6 +52,34 @@ async def test_dlq_enqueue_and_get(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_dlq_serializes_datetime_payload():
+    observed_at = datetime.now(UTC)
+    event = RawEvent(
+        source_id="test_source",
+        external_id="datetime-event",
+        url="https://example.com/event",
+        title="Event with timestamp metadata",
+        observed_at=observed_at,
+        metadata={"observed_at": observed_at},
+    )
+
+    class FakeSession:
+        item = None
+
+        def add(self, item):
+            self.item = item
+
+        async def flush(self):
+            self.item.id = "test-id"
+
+    session = FakeSession()
+    failed_item = await DeadLetterQueue.enqueue_failed(session, event, "test failure")
+
+    assert failed_item.raw_payload["observed_at"] == observed_at.isoformat()
+    assert failed_item.raw_payload["metadata"]["observed_at"] == observed_at.isoformat()
+
+
+@pytest.mark.asyncio
 async def test_dlq_purge(db_session: AsyncSession):
     payload = {"title": "Old Failed"}
     item = await DeadLetterQueue.enqueue_failed(db_session, payload, "Old error", source="src")
@@ -76,6 +104,7 @@ async def test_idempotency_dedup(db_session: AsyncSession):
         description="Detailed breakdown of a new architecture.",
         activity=100.0,
         published_at=now,
+        metadata={"observed_at": now},
     )
 
     stats = PipelineStats()
@@ -87,6 +116,9 @@ async def test_idempotency_dedup(db_session: AsyncSession):
     await db_session.commit()
 
     assert stats.signals_created == 1
+    stored_event = (await db_session.execute(SourceEvent.__table__.select())).first()
+    assert stored_event is not None
+    assert stored_event.raw_payload["observed_at"] == now.isoformat()
 
     event2 = RawEvent(
         source_id="github",

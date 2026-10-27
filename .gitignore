@@ -16,6 +16,9 @@ venv/
 # Env
 .env
 .env.local
+.env.*
+!.env.example
+!backend/.env.example
 
 # Tooling caches
 .pytest_cache/
@@ -37,6 +40,12 @@ npm-debug.log*
 *.out
 backend/reports/
 frontend/scripts/
+
+# Local signal exports and runtime state can contain private research data.
+exports/
+backend/exports/
+logs/
+cache/
 
 # OS
 .DS_Store

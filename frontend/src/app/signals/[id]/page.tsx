@@ -204,7 +204,10 @@ export default function SignalPage() {
         )}
 
         <div className="row" style={{ marginTop: "var(--s3)" }}>
-          <span className="strength">
+          <span
+            className="strength"
+            title="Activity ranking based on observed data, not a probability of future success."
+          >
             <span className="strength-bar">
               <span
                 className="strength-fill"
@@ -250,6 +253,10 @@ export default function SignalPage() {
 
       <div className="section-title">Activity history</div>
       <div className="panel">
+        <p className="muted text-xs" style={{ marginTop: 0 }}>
+          Strength is an activity ranking, not a probability. Activity metrics
+          from different sources are not combined unless their units match.
+        </p>
         <ActivityChart
           points={signal.snapshots.map((s) => ({
             t: s.captured_at,

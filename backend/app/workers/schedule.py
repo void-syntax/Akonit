@@ -10,6 +10,7 @@ import signal
 from contextlib import suppress
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from opentelemetry import trace
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -47,13 +48,12 @@ _METRICS_LOCK = asyncio.Lock()
 _CLEANUP_LOCK = asyncio.Lock()
 
 
-from opentelemetry import trace
-
 tracer = trace.get_tracer("signal-radar.workers")
 
 async def _cycle_collect() -> None:
-    from app.api.v1.system import _WORKER_PAUSED
-    if _WORKER_PAUSED:
+    from app.core.worker_control import is_worker_paused
+
+    if is_worker_paused():
         logger.info("collection skipped (worker is paused by user)")
         return
     with tracer.start_as_current_span("worker.collect"):

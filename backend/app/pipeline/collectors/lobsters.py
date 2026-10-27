@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from app.core.logging import get_logger
@@ -50,6 +50,8 @@ class LobstersJsonStrategy(Strategy):
                 continue
 
             for rank, item in enumerate(data, start=1):
+                if not isinstance(item, dict):
+                    continue
                 short_id = item.get("short_id")
                 if not short_id or short_id in seen:
                     continue
@@ -75,7 +77,13 @@ class LobstersJsonStrategy(Strategy):
                     published = None
 
                 tags = item.get("tags") or []
-                submitter = (item.get("submitter_user") or {}).get("username")
+                submitter_data = item.get("submitter_user")
+                if isinstance(submitter_data, dict):
+                    submitter = submitter_data.get("username")
+                elif isinstance(submitter_data, str):
+                    submitter = submitter_data
+                else:
+                    submitter = None
 
                 events.append(
                     RawEvent(

@@ -1,62 +1,62 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+type Accent = "lime" | "cyan" | "violet";
+const ACCENTS: Record<Accent, { brand: string; strong: string; soft: string; line: string }> = {
+  lime: { brand: "#a6d66f", strong: "#c2e79b", soft: "rgba(166,214,111,.11)", line: "rgba(166,214,111,.32)" },
+  cyan: { brand: "#38bdf8", strong: "#7dd3fc", soft: "rgba(56,189,248,.11)", line: "rgba(56,189,248,.32)" },
+  violet: { brand: "#a78bfa", strong: "#c4b5fd", soft: "rgba(167,139,250,.11)", line: "rgba(167,139,250,.32)" },
+};
 
 export function CyberHUDControl() {
-  const [hudActive, setHudActive] = useState(true);
-  const [glowMode, setGlowMode] = useState<"cyan" | "emerald" | "violet">("cyan");
+  const [accent, setAccent] = useState<Accent>("lime");
+  const [visible, setVisible] = useState(false);
 
-  const glowColor = glowMode === "cyan" ? "#38bdf8" : glowMode === "emerald" ? "#10b981" : "#8b5cf6";
+  useEffect(() => {
+    const saved = window.localStorage.getItem("signal-radar-accent") as Accent | null;
+    if (saved && saved in ACCENTS) setAccent(saved);
+    setVisible(true);
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    const colors = ACCENTS[accent];
+    const root = document.documentElement;
+    root.style.setProperty("--brand", colors.brand);
+    root.style.setProperty("--brand-strong", colors.strong);
+    root.style.setProperty("--brand-soft", colors.soft);
+    root.style.setProperty("--brand-line", colors.line);
+    root.style.setProperty("--st-new", colors.brand);
+    root.style.setProperty("--st-new-bg", colors.soft);
+    root.style.setProperty("--st-new-line", colors.line);
+    window.localStorage.setItem("signal-radar-accent", accent);
+  }, [accent, visible]);
+
+  if (!visible) return null;
 
   return (
-    <div style={{
+    <section aria-label="Appearance settings" className="hud-control" style={{
       position: "fixed",
-      bottom: "24px",
+      bottom: "40px",
       right: "24px",
-      zIndex: 9999,
-      background: "rgba(9, 9, 11, 0.85)",
-      backdropFilter: "blur(12px)",
-      border: `1px solid ${glowColor}40`,
-      boxShadow: `0 0 20px ${glowColor}20`,
+      zIndex: 60,
+      background: "var(--surface-1)",
+      border: "1px solid var(--line)",
       borderRadius: "12px",
-      padding: "12px 16px",
+      padding: "8px 10px",
       display: "flex",
       alignItems: "center",
-      gap: "12px",
-      fontFamily: "monospace",
+      gap: "8px",
       fontSize: "11px",
-      color: "#f4f4f5"
+      color: "var(--text-2)"
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-        <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: glowColor, boxShadow: `0 0 10px ${glowColor}` }} />
-        <span style={{ fontWeight: "bold" }}>HUD: {hudActive ? "ONLINE" : "STANDBY"}</span>
-      </div>
-      <div style={{ display: "flex", gap: "6px" }}>
-        <button
-          onClick={() => setGlowMode("cyan")}
-          style={{ background: glowMode === "cyan" ? "#38bdf8" : "rgba(255,255,255,0.05)", color: glowMode === "cyan" ? "#000" : "#a1a1aa", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}
-        >
-          CYAN
-        </button>
-        <button
-          onClick={() => setGlowMode("emerald")}
-          style={{ background: glowMode === "emerald" ? "#10b981" : "rgba(255,255,255,0.05)", color: glowMode === "emerald" ? "#000" : "#a1a1aa", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}
-        >
-          EMERALD
-        </button>
-        <button
-          onClick={() => setGlowMode("violet")}
-          style={{ background: glowMode === "violet" ? "#8b5cf6" : "rgba(255,255,255,0.05)", color: glowMode === "violet" ? "#000" : "#a1a1aa", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}
-        >
-          VIOLET
-        </button>
-      </div>
-      <button
-        onClick={() => setHudActive(!hudActive)}
-        style={{ background: "transparent", border: `1px solid ${glowColor}`, color: glowColor, padding: "4px 8px", borderRadius: "4px", cursor: "pointer" }}
-      >
-        {hudActive ? "HIDE" : "SHOW"}
-      </button>
-    </div>
+      <span>Акцент</span>
+      {(["lime", "cyan", "violet"] as const).map((color) => (
+        <button key={color} type="button" aria-label={`Цвет акцента: ${color}`} aria-pressed={accent === color}
+          onClick={() => setAccent(color)}
+          style={{ width: 24, height: 24, borderRadius: "50%", border: accent === color ? "2px solid var(--text-1)" : "1px solid var(--line-strong)", background: ACCENTS[color].brand }} />
+      ))}
+    </section>
   );
 }

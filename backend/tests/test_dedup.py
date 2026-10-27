@@ -41,6 +41,19 @@ def test_same_canonical_url_merges_across_sources():
     assert result.cluster_id == "existing"
 
 
+def test_relative_url_does_not_merge_across_sources():
+    result = find_cluster(
+        "Different title",
+        "",
+        "/status",
+        "news",
+        "item-2",
+        [candidate(url="/status", text="Unrelated text")],
+    )
+
+    assert result.is_new_cluster
+
+
 def test_observation_time_is_not_publication_time():
     published = datetime.now(UTC) - timedelta(days=3)
     event = RawEvent(

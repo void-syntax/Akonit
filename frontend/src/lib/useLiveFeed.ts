@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, type FeedQuery } from "./api";
-import type { Signal } from "./types";
+import type { SignalPage } from "./types";
 
 export type LiveState = "connecting" | "live" | "offline";
 
@@ -12,7 +12,7 @@ export type LiveState = "connecting" | "live" | "offline";
  */
 export function useLiveFeed(
   query: FeedQuery,
-  onNewSignals: (signals: Signal[]) => void,
+  onNewSignals: (page: SignalPage) => void,
 ) {
   const [state, setState] = useState<LiveState>("connecting");
   const queryRef = useRef(query);
@@ -27,13 +27,12 @@ export function useLiveFeed(
 
     const poll = async () => {
       try {
-        const page = await api.signals(queryRef.current);
+        const currentQuery = queryRef.current;
+        const page = await api.signals({ ...currentQuery, limit: Math.min(currentQuery.limit ?? 30, 30), offset: 0 });
         if (!active) return;
         setState("live");
         currentInterval = 15_000;
-        if (page.items.length > 0) {
-          handlerRef.current(page.items);
-        }
+        handlerRef.current(page);
       } catch {
         if (active) {
           setState("offline");

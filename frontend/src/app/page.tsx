@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FilterSelect } from "@/components/FilterSelect";
 import { IntroHero } from "@/components/IntroHero";
@@ -38,6 +38,7 @@ export default function FeedPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const nextOffset = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   const [stats, setStats] = useState<PublicStats | null>(null);
@@ -59,7 +60,7 @@ export default function FeedPage() {
   }, [search]);
 
   const query = useMemo(() => {
-    const q: FeedQuery = { tab, limit: 30 };
+    const q: FeedQuery = { tab, limit: 100 };
     if (radarFilter) q.radar_id = radarFilter;
     if (countryFilter.length) q.country = countryFilter;
     if (sourceFilter.length) q.source = sourceFilter;
@@ -68,17 +69,20 @@ export default function FeedPage() {
     if (minStrength > 0) q.min_strength = minStrength;
     return q;
   }, [tab, radarFilter, countryFilter, sourceFilter, tagFilter, debouncedSearch, minStrength]);
+  const queryKey = JSON.stringify(query);
+  const queryKeyRef = useRef(queryKey);
+  queryKeyRef.current = queryKey;
 
   const liveState = useLiveFeed(
     query,
-    useCallback((fetchedItems: Signal[]) => {
+    useCallback((page) => {
       setSignals((prev) => {
         const existingIds = new Set(prev.map((s) => s.id));
-        const trulyNew = fetchedItems.filter((s) => !existingIds.has(s.id));
+        const trulyNew = page.items.filter((s) => !existingIds.has(s.id));
         if (trulyNew.length === 0) return prev;
         return [...trulyNew, ...prev];
       });
-      setTotal((prev) => Math.max(prev, fetchedItems.length));
+      setTotal(page.total);
     }, []),
   );
 
@@ -86,34 +90,20 @@ export default function FeedPage() {
     setLoading(true);
     setError(null);
     try {
-      const query: FeedQuery = { tab, limit: 30 };
-      if (radarFilter) query.radar_id = radarFilter;
-      if (countryFilter.length) query.country = countryFilter;
-      if (sourceFilter.length) query.source = sourceFilter;
-      if (tagFilter.length) query.tag = tagFilter;
-      if (search.trim()) query.keyword = search.trim();
-      if (minStrength > 0) query.min_strength = minStrength;
-
-      const page = await api.signals(query, signal ? { signal } : undefined);
+      const page = await api.signals({ ...query, offset: 0 }, signal ? { signal } : undefined);
       if (signal?.aborted) return;
+      nextOffset.current = page.offset + page.items.length;
       setSignals(page.items);
       setTotal(page.total);
     } catch (err) {
       if (signal?.aborted) return;
+      nextOffset.current = 0;
       setSignals([]);
       setError(err instanceof Error ? err.message : "Could not load signals");
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [
-    tab,
-    radarFilter,
-    countryFilter,
-    sourceFilter,
-    tagFilter,
-    search,
-    minStrength,
-  ]);
+  }, [query]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -198,12 +188,9 @@ export default function FeedPage() {
             {liveState === "live" ? "LIVE" : liveState.toUpperCase()}
           </span>
           <div className="spacer" />
-          {hasFilters && !loading && !error && signals.length > 0 && (
-            <span className="dim text-xs">{signals.length} result{signals.length !== 1 ? "s" : ""}</span>
-          )}
-          {(!hasFilters || loading || error || signals.length === 0) && (
-            <span className="dim text-xs">{total} found</span>
-          )}
+          <span className="dim text-xs">
+            {signals.length.toLocaleString()} / {total.toLocaleString()} loaded
+          </span>
         </div>
 
         <div className="tabs" role="tablist" aria-label="Filter signals by trend status">
@@ -392,6 +379,37 @@ export default function FeedPage() {
             />
           ))}
         </div>
+        {!loading && !error && nextOffset.current < total && (
+          <div className="feed-load-more">
+            <button
+              className="btn"
+              disabled={loadingMore}
+              onClick={async () => {
+                const requestedQueryKey = queryKey;
+                const offset = nextOffset.current;
+                setLoadingMore(true);
+                setError(null);
+                try {
+                  const nextQuery = { ...query, limit: 100, offset };
+                  const page = await api.signals(nextQuery);
+                  if (requestedQueryKey !== queryKeyRef.current) return;
+                  nextOffset.current = offset + page.items.length;
+                  setSignals((previous) => {
+                    const seen = new Set(previous.map((signal) => signal.id));
+                    return [...previous, ...page.items.filter((signal) => !seen.has(signal.id))];
+                  });
+                  setTotal(page.items.length === 0 ? Math.min(page.total, offset) : page.total);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Could not load more signals");
+                } finally {
+                  setLoadingMore(false);
+                }
+              }}
+            >
+              {loadingMore ? "Loading…" : `Load more (${(total - signals.length).toLocaleString()} left)`}
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

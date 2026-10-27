@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: signal
-      POSTGRES_PASSWORD: signal
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-signal}
       POSTGRES_DB: signal_radar
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -13,13 +13,13 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "no"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -29,11 +29,14 @@ services:
   api:
     build: ./backend
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://signal:${POSTGRES_PASSWORD:-signal}@db:5432/signal_radar
+      REDIS_URL: redis://redis:6379/0
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend:/app
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -55,6 +58,9 @@ services:
   worker:
     build: ./backend
     env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://signal:${POSTGRES_PASSWORD:-signal}@db:5432/signal_radar
+      REDIS_URL: redis://redis:6379/0
     command: python -m app.workers.schedule
     volumes:
       - ./backend:/app
@@ -68,9 +74,9 @@ services:
     build: ./frontend
     env_file: .env
     environment:
-      NEXT_PUBLIC_API_URL=http://localhost:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       api:
         condition: service_healthy

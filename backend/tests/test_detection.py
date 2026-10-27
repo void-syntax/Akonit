@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
 from app.core.config import settings
 from app.models.enums import SignalStatus
 from app.pipeline.detection.lifecycle import classify, is_actionable
 from app.pipeline.detection.metrics import (
     ActivityPoint,
+    activity_metrics_comparable,
     compute_growth_acceleration,
+    include_current_observation,
     safe_pct,
 )
 from app.pipeline.detection.scoring import compute_strength
@@ -34,6 +34,15 @@ def points(values: list[float], minutes: int = 15) -> list:
 
 
 class TestMetrics:
+    def test_cross_source_activity_requires_a_shared_unit(self):
+        assert activity_metrics_comparable("reddit", "score", "lobsters", "score")
+        assert not activity_metrics_comparable(
+            "google_trends", "approx_searches", "reddit", "score_plus_comments"
+        )
+        assert not activity_metrics_comparable("source_a", "unknown", "source_b", "unknown")
+        assert activity_metrics_comparable("reddit", "unknown", "reddit", "unknown")
+        assert not activity_metrics_comparable("reddit", "score", "reddit", "comments")
+
     def test_growth_without_a_baseline_is_zero(self):
         """A first sighting has nothing to compare against.
 
@@ -55,6 +64,53 @@ class TestMetrics:
         assert seen.has_baseline
         assert not seen.first_measurement
         assert seen.growth == 80.0
+
+    def test_current_observation_is_included_when_recomputing_metrics(self):
+        """A new measurement must affect growth before its snapshot is saved."""
+        previous_history = points([100])
+        current_observation = ActivityPoint(
+            captured_at=NOW + timedelta(minutes=15),
+            activity=180,
+        )
+
+        metrics = compute_growth_acceleration(
+            include_current_observation(
+                previous_history,
+                captured_at=current_observation.captured_at,
+                activity=current_observation.activity,
+            ),
+            now=current_observation.captured_at,
+        )
+
+        assert metrics.current == 180
+        assert metrics.previous == 100
+        assert metrics.growth == 80
+
+    def test_same_time_observation_replaces_instead_of_faking_a_growth_window(self):
+        captured_at = NOW - timedelta(minutes=1)
+        history = [ActivityPoint(captured_at=captured_at, activity=100)]
+
+        result = include_current_observation(
+            history,
+            captured_at=captured_at,
+            activity=180,
+        )
+
+        assert len(result) == 1
+        assert result[0].activity == 180
+
+    def test_observation_history_is_bounded(self):
+        history = points(list(range(120)))
+
+        result = include_current_observation(
+            history,
+            captured_at=NOW + timedelta(minutes=15),
+            activity=120,
+            max_points=100,
+        )
+
+        assert len(result) == 100
+        assert result[-1].activity == 120
 
     def test_unmeasured_samples_cannot_fake_momentum(self):
         """A feed that reports no numbers must not look like it is surging."""
@@ -118,8 +174,6 @@ class TestTagFiltering:
 
     @staticmethod
     def _client_session(tmp_path, monkeypatch):
-        import asyncio
-
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
         from app.db.session import Base

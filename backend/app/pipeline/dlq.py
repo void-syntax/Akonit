@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from datetime import UTC, datetime
 from sqlalchemy import JSON, DateTime, Integer, String, Text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
+from fastapi.encoders import jsonable_encoder
 
 from app.db.session import Base
 from app.models.enums import uuid_str, utcnow
@@ -63,6 +63,10 @@ class DeadLetterQueue:
         else:
             payload_dict = {"raw": str(event_payload)}
 
+        # Collector metadata often contains datetimes or enums. JSON columns
+        # accept only JSON primitives, so normalize before handing it to SQLAlchemy.
+        payload_dict = jsonable_encoder(payload_dict)
+
         src = source or payload_dict.get("source_id", "")
 
         failed_item = FailedSignal(
@@ -98,7 +102,7 @@ class DeadLetterQueue:
         item.last_retry_at = datetime.now(UTC)
         
         from app.pipeline.collectors.base import RawEvent
-        from app.services.pipeline_service import _process_event, PipelineStats, ClusterCandidate, build_default_matcher
+        from app.services.pipeline_service import _process_event, PipelineStats, build_default_matcher
         
         raw_data = item.raw_payload
         event = RawEvent(
@@ -120,7 +124,6 @@ class DeadLetterQueue:
         )
 
         stats = PipelineStats()
-        recent_events = []
         candidates = []
         matcher = build_default_matcher()
         seen_clusters = set()

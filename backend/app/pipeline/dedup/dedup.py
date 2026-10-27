@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 from app.core.config import settings
 from app.pipeline.normalization.normalizer import canonicalize_url, similarity, simhash
@@ -67,7 +68,12 @@ def find_cluster(
             continue
 
         candidate_canonical = canonicalize_url(candidate.url)
-        if own_canonical and candidate_canonical == own_canonical:
+        if _same_canonical_url(
+            own_canonical,
+            candidate_canonical,
+            source_a=source_id,
+            source_b=candidate.source_id,
+        ):
             exact_url = candidate
             break
 
@@ -91,6 +97,28 @@ def find_cluster(
 
     cluster_id = make_cluster_id(url, source_id, external_id)
     return DedupDecision(cluster_id, True, "new_cluster", 0.0)
+
+
+def _same_canonical_url(
+    url_a: str,
+    url_b: str,
+    *,
+    source_a: str,
+    source_b: str,
+) -> bool:
+    """Match equivalent URLs without merging unrelated source pages.
+
+    Exact URL matching is valuable for syndication, but path-only or hostless
+    URLs are ambiguous (e.g. every service can have `/status`). Require an
+    explicit hostname across sources. Same-source adapters may still emit a
+    canonical relative URL when that is all the source provides.
+    """
+    if not url_a or url_a != url_b:
+        return False
+    parsed = urlparse(url_a)
+    if source_a != source_b and not parsed.hostname:
+        return False
+    return True
 
 
 def should_merge_cross_source(

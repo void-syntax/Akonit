@@ -33,6 +33,20 @@ def _is_measured(value: float | None) -> bool:
         return False
 
 
+def activity_metrics_comparable(
+    primary_source: str,
+    primary_metric: str | None,
+    incoming_source: str,
+    incoming_metric: str | None,
+) -> bool:
+    """Whether two activity values share a meaningful unit for trend math."""
+    if primary_metric != incoming_metric:
+        return False
+    if primary_metric in {None, "", "unknown"}:
+        return primary_source == incoming_source
+    return True
+
+
 
 @dataclass
 class ActivityPoint:
@@ -115,6 +129,31 @@ def weighted_velocity(values: list[float], alpha: float = 0.45) -> float:
         weight_sum += weight
 
     return velocity / weight_sum if weight_sum else 0.0
+
+
+def include_current_observation(
+    history: list[ActivityPoint],
+    *,
+    captured_at: datetime,
+    activity: float,
+    max_points: int = 100,
+) -> list[ActivityPoint]:
+    """Return bounded chronological history including the just-fetched value.
+
+    A sample with the same timestamp replaces the prior value because multiple
+    events can be processed in one fetch cycle. Keeping a small recent window
+    bounds recomputation cost even for long-lived saved signals.
+    """
+    points = list(history)
+    point = ActivityPoint(captured_at=captured_at, activity=activity)
+
+    if points and points[-1].captured_at == captured_at:
+        points[-1] = point
+    else:
+        points.append(point)
+
+    points.sort(key=lambda item: item.captured_at)
+    return points[-max(max_points, 1) :]
 
 
 def compute_growth_acceleration(

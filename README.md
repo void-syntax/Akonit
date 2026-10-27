@@ -12,7 +12,9 @@ news), and notifies you on your phone.
 
 ## Run it locally
 
-**Double-click `start.bat`.** That is the whole procedure.
+**Double-click `start.bat`.** On first run it creates a Python environment,
+installs the pinned backend and dashboard packages, and copies safe defaults to
+`backend/.env`. Later starts reuse those packages and your settings.
 
 It checks what is installed, creates what is missing, starts everything, waits
 until the app actually answers, and opens <http://localhost:3000> in your
@@ -22,8 +24,8 @@ You need one of these two setups:
 
 | | |
 |---|---|
-| **Python 3.11+ and Node.js 20+** — `start.bat` launches the local API, worker and dashboard. |
-| **Docker Desktop** — optional; use `docker compose up --build` to run the container stack. |
+| **Python 3.11+ and Node.js 20+** — `start.bat` prepares and launches the local API, worker and dashboard. |
+| **Docker Desktop** — optional; copy `.env.example` to `.env`, then use `docker compose up --build` to run the container stack. |
 
 Nothing else. No account, no API key, no signup, no cloud service.
 
@@ -83,9 +85,33 @@ python -m tools.list_routes       # every route, flags duplicate handlers
 docker compose up          # then open http://localhost:3000
 ```
 
-Without Docker, copy `backend/.env.example` to `backend/.env` (it defaults to
-SQLite), then run `python -m app.workers.schedule` from `backend/` and
-`npm run dev` in `frontend/`.
+Without Docker, create the backend environment and install its packages first:
+
+```powershell
+cd backend
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+In another terminal start the collector with
+`.venv\Scripts\python -m app.workers.schedule` from `backend/`, then start the
+dashboard with `npm ci` and `npm run dev` from `frontend/`.
+
+## Local data and optional credentials
+
+The default installation needs no keys or accounts. Optional source credentials
+and push settings belong in your local `backend/.env`; never commit that file.
+The root `.env` is only for Docker Compose. Local database files, logs, caches,
+and generated signal digests are ignored by Git and remain on your computer.
+
+The default ports are bound to `127.0.0.1`. Authentication is disabled for a
+single-user local installation; do not expose the app directly to the internet.
+
+## License
+
+Signal Radar is distributed under the [MIT License](LICENSE).
 
 ### There is no login
 
@@ -119,7 +145,7 @@ collector, but it is no longer the recommended path.
 ## Architecture
 
 ```
-COLLECTORS            15 adapters, credential cascade, self-healing
+COLLECTORS            public-source adapters, optional credentials, self-healing
       ↓
 NORMALIZATION         text/URL/hashtag normalization, country resolution
       ↓

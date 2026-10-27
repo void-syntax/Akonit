@@ -12,16 +12,16 @@ $ports = @(8000, 3000)
 foreach ($port in $ports) {
     $connections = netstat -ano | Select-String "LISTENING" | Select-String ":$port\s"
     if ($connections) {
-        $pids = $connections | ForEach-Object {
+        $processIds = $connections | ForEach-Object {
             ($_ -split '\s+')[-1]
         } | Sort-Object -Unique
-        foreach ($pid in $pids) {
-            if ($pid -match '^\d+$' -and [int]$pid -ne 0) {
+        foreach ($processId in $processIds) {
+            if ($processId -match '^\d+$' -and [int]$processId -ne 0) {
                 try {
-                    Stop-Process -Id ([int]$pid) -Force -ErrorAction Stop
-                    Write-Host "  [OK] Stopped PID $pid (port $port)" -ForegroundColor Yellow
+                    Stop-Process -Id ([int]$processId) -Force -ErrorAction Stop
+                    Write-Host "  [OK] Stopped PID $processId (port $port)" -ForegroundColor Yellow
                 } catch {
-                    Write-Host "  [!!] Could not stop PID $pid (port $port)" -ForegroundColor Gray
+                    Write-Host "  [!!] Could not stop PID $processId (port $port)" -ForegroundColor Gray
                 }
             }
         }

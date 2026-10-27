@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from app.core.logging import get_logger
@@ -20,16 +21,18 @@ router = APIRouter(prefix="/sse", tags=["sse"])
 async def sse_stream() -> StreamingResponse:
     """Stream real-time intelligence telemetry and signal updates via SSE."""
     async def event_generator():
+        sequence = 0
         try:
-            for i in range(5):
+            while True:
+                sequence += 1
                 payload = {
                     "event": "pulse",
-                    "sequence": i + 1,
+                    "sequence": sequence,
                     "status": "nominal",
-                    "timestamp": asyncio.get_event_loop().time()
+                    "timestamp": time.time(),
                 }
                 yield f"data: {json.dumps(payload)}\n\n"
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(15)
         except asyncio.CancelledError:
             logger.info("SSE client disconnected")
 

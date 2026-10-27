@@ -18,3 +18,5 @@ async def test_telemetry_metrics_endpoint():
         assert "clustering" in data
         assert "memory_guard" in data
         assert "database" in data
+        assert "signals" in data and "total" in data["signals"]
+        assert "sources" in data and "active_24h" in data["sources"]

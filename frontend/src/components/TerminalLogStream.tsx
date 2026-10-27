@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { API_URL } from "@/lib/api";
 
 interface LogItem {
   id: number;
@@ -10,58 +11,55 @@ interface LogItem {
 }
 
 export function TerminalLogStream() {
-  const [mounted, setMounted] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState(false);
   const [logs, setLogs] = useState<LogItem[]>([]);
 
   useEffect(() => {
-    setMounted(true);
-    const nowStr = new Date().toLocaleTimeString();
-    setLogs([
-      { id: 1, timestamp: nowStr, message: "Neural attention matrix initialized.", level: "info" },
-      { id: 2, timestamp: nowStr, message: "LSH Forest index active (230 test vectors).", level: "success" },
-    ]);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
     let eventSource: EventSource | null = null;
-    let counter = 3;
+    let counter = 1;
     try {
-      eventSource = new EventSource("/api/v1/sse/stream");
+      eventSource = new EventSource(`${API_URL}/api/v1/sse/stream`);
+      eventSource.onopen = () => {
+        setConnected(true);
+        setError(false);
+      };
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           setLogs((prev) => [
             {
               id: counter++,
-              timestamp: new Date().toLocaleTimeString(),
-              message: `SSE Telemetry Pulse #${data.sequence} received. Status: ${data.status}`,
+              timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+              message: `Service heartbeat #${data.sequence} received (${data.status}).`,
               level: "pulse",
             },
             ...prev.slice(0, 15),
           ]);
         } catch {}
       };
-    } catch {}
+      eventSource.onerror = () => {
+        setConnected(false);
+        setError(true);
+      };
+    } catch {
+      setConnected(false);
+      setError(true);
+    }
 
     return () => {
       if (eventSource) eventSource.close();
     };
-  }, [mounted]);
-
-  if (!mounted) {
-    return (
-      <div style={{ background: "#09090b", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "16px", fontFamily: "monospace", fontSize: "12px", color: "#a1a1aa", margin: "16px 0", height: "120px" }} />
-    );
-  }
+  }, []);
 
   return (
-    <div style={{ background: "#09090b", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", padding: "16px", fontFamily: "monospace", fontSize: "12px", color: "#a1a1aa", margin: "16px 0" }}>
+    <section aria-label="Service connection events" style={{ background: "var(--surface-1)", border: "1px solid var(--line)", borderRadius: "8px", padding: "16px", fontFamily: "monospace", fontSize: "12px", color: "var(--text-2)", margin: "16px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", borderBottom: "1px solid rgba(255,255,255,0.06)", paddingBottom: "8px" }}>
-        <span style={{ color: "#38bdf8", fontWeight: "bold", letterSpacing: "0.05em" }}>// LIVE INTELLIGENCE STREAM & TELEMETRY</span>
-        <span style={{ fontSize: "10px", padding: "2px 6px", background: "rgba(16, 185, 129, 0.1)", color: "#10b981", borderRadius: "4px" }}>CONNECTED</span>
+        <span style={{ color: "var(--brand-strong)", fontWeight: "bold", letterSpacing: "0.05em" }}>// SERVICE CONNECTION</span>
+        <span role="status" style={{ fontSize: "10px", padding: "2px 6px", background: connected ? "var(--brand-soft)" : "rgba(245, 158, 11, 0.1)", color: connected ? "var(--brand-strong)" : "var(--warn)", borderRadius: "4px" }}>{connected ? "CONNECTED" : error ? "RECONNECTING" : "CONNECTING"}</span>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "150px", overflowY: "auto" }}>
+      <div aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "150px", overflowY: "auto" }}>
+        {logs.length === 0 && <span>Waiting for service heartbeat…</span>}
         {logs.map((log) => (
           <div key={log.id} style={{ display: "flex", gap: "10px" }}>
             <span style={{ color: "#52525b" }}>[{log.timestamp}]</span>
@@ -71,6 +69,6 @@ export function TerminalLogStream() {
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }

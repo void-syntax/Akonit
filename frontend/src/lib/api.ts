@@ -70,6 +70,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       cache: "no-store",
     });
   } catch (err) {
+    // Preserve fetch cancellation: callers use AbortController when filters
+    // change or a page unmounts, and should not surface that as an API outage.
+    if (
+      options.signal?.aborted ||
+      (err instanceof Error && err.name === "AbortError")
+    ) {
+      throw err;
+    }
     throw new ApiError(0, err instanceof Error ? err.message : "Network request failed");
   }
 
@@ -309,5 +317,10 @@ export const api = {
       status: string;
     }>("/admin/stats"),
 
-  telemetryMetrics: () => request<any>("/telemetry/metrics"),
+  telemetryMetrics: () =>
+    request<{
+      signals?: { total?: number };
+      sources?: { active_24h?: number };
+      database?: { status?: string; page_count?: number; freelist_count?: number };
+    }>("/telemetry/metrics"),
 };
