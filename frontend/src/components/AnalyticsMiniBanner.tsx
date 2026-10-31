@@ -11,9 +11,27 @@ export function AnalyticsMiniBanner() {
   } | null>(null);
 
   useEffect(() => {
-    void api.telemetryMetrics().then((res) => {
-      setMetrics(res);
-    }).catch(() => {});
+    let active = true;
+    const refresh = async () => {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const result = await api.telemetryMetrics();
+        if (active) setMetrics(result);
+      } catch {
+        // Retain the last good values while the API is temporarily unavailable.
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 60_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   if (!metrics) return null;

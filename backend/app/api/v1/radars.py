@@ -11,7 +11,6 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, SessionDep
 from app.models import (
     Radar,
-    RadarCondition,
     RadarConditionGroup,
     RadarSignal,
     Signal,
@@ -44,11 +43,7 @@ async def _load_radar(session: SessionDep, user_id: str, radar_id: str) -> Radar
 
 def _signal_out(signal: Signal) -> SignalOut:
     return SignalOut(
-        **{
-            f: getattr(signal, f)
-            for f in SignalOut.model_fields
-            if hasattr(signal, f)
-        }
+        **{f: getattr(signal, f) for f in SignalOut.model_fields if hasattr(signal, f)}
     )
 
 
@@ -184,9 +179,7 @@ async def update(
 
 
 @router.delete("/{radar_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_radar(
-    radar_id: str, session: SessionDep, user: CurrentUser
-):
+async def delete_radar(radar_id: str, session: SessionDep, user: CurrentUser):
     radar = await _load_radar(session, user.id, radar_id)
     await session.delete(radar)
     await session.commit()
@@ -314,25 +307,60 @@ async def radar_summary(radar_id: str, session: SessionDep, user: CurrentUser):
 
 
 COUNTRY_NAMES: dict[str, str] = {
-    "KR": "South Korea", "JP": "Japan", "US": "United States",
-    "GB": "United Kingdom", "CN": "China", "TR": "Turkey",
-    "AE": "UAE", "AZ": "Azerbaijan", "BR": "Brazil", "IN": "India",
-    "DE": "Germany", "FR": "France", "ES": "Spain", "IT": "Italy",
-    "MX": "Mexico", "CA": "Canada", "AU": "Australia", "RU": "Russia",
+    "KR": "South Korea",
+    "JP": "Japan",
+    "US": "United States",
+    "GB": "United Kingdom",
+    "CN": "China",
+    "TR": "Turkey",
+    "AE": "UAE",
+    "AZ": "Azerbaijan",
+    "BR": "Brazil",
+    "IN": "India",
+    "DE": "Germany",
+    "FR": "France",
+    "ES": "Spain",
+    "IT": "Italy",
+    "MX": "Mexico",
+    "CA": "Canada",
+    "AU": "Australia",
+    "RU": "Russia",
 }
 
 SOURCE_NAMES: dict[str, str] = {
-    "tiktok": "TikTok", "youtube": "YouTube", "instagram": "Instagram",
-    "x_trends": "X", "reddit": "Reddit", "google_trends": "Google Trends",
-    "google_news_trends": "Google News", "github": "GitHub",
-    "huggingface": "Hugging Face", "producthunt": "Product Hunt",
-    "hackernews": "Hacker News", "npm": "npm", "devto": "DEV",
-    "lobsters": "Lobsters", "stackoverflow": "Stack Overflow",
+    "tiktok": "TikTok",
+    "tiktok_commercial": "TikTok Commercial",
+    "youtube": "YouTube",
+    "instagram": "Instagram",
+    "x_trends": "X Trends",
+    "x_posts": "X Posts",
+    "reddit": "Reddit",
+    "reddit_osint": "Reddit OSINT",
+    "mastodon": "Mastodon",
+    "bluesky_stream": "Bluesky Live",
+    "bluesky": "Bluesky Search",
+    "custom_rss": "Custom RSS / Atom",
+    "google_trends": "Google Trends",
+    "google_news_trends": "Google News",
+    "github": "GitHub",
+    "huggingface": "Hugging Face",
+    "producthunt": "Product Hunt",
+    "hackernews": "Hacker News",
+    "npm": "npm",
+    "devto": "DEV",
+    "lobsters": "Lobsters",
+    "stackoverflow": "Stack Overflow",
 }
 
 OPERATOR_TEXT = {
-    "GT": ">", "GTE": "≥", "LT": "<", "LTE": "≤",
-    "IN": "is", "NOT_IN": "is not", "EQ": "=", "CONTAINS": "contains",
+    "GT": ">",
+    "GTE": "≥",
+    "LT": "<",
+    "LTE": "≤",
+    "IN": "is",
+    "NOT_IN": "is not",
+    "EQ": "=",
+    "CONTAINS": "contains",
 }
 
 
@@ -349,13 +377,21 @@ def summarize_radar(groups) -> list[str]:
             operator = OPERATOR_TEXT.get(cond.operator.value, cond.operator.value)
 
             if kind == "COUNTRY":
-                codes = [str(c).upper() for c in value] if isinstance(value, list) else [str(value).upper()]
+                codes = (
+                    [str(c).upper() for c in value]
+                    if isinstance(value, list)
+                    else [str(value).upper()]
+                )
                 labels = [COUNTRY_NAMES.get(c, c) for c in codes]
-                pieces.append(f"{'Country' if cond.operator.value != 'NOT_IN' else 'Not country'} {' / '.join(labels)}")
+                pieces.append(
+                    f"{'Country' if cond.operator.value != 'NOT_IN' else 'Not country'} {' / '.join(labels)}"
+                )
             elif kind == "SOURCE":
                 ids = value if isinstance(value, list) else [value]
                 labels = [SOURCE_NAMES.get(str(s), str(s)) for s in ids]
-                pieces.append(f"{'Source' if cond.operator.value != 'NOT_IN' else 'Not source'} {' / '.join(labels)}")
+                pieces.append(
+                    f"{'Source' if cond.operator.value != 'NOT_IN' else 'Not source'} {' / '.join(labels)}"
+                )
             elif kind == "TAG":
                 names = value if isinstance(value, list) else [value]
                 pretty = " / ".join(str(n).replace("-", " ").title() for n in names)
@@ -377,7 +413,9 @@ def summarize_radar(groups) -> list[str]:
                 pieces.append("Status " + " / ".join(str(n).title() for n in names))
             elif kind == "KEYWORD":
                 words = value if isinstance(value, list) else [value]
-                pieces.append(f"{'Exclude' if cond.operator.value == 'NOT_IN' else 'Keyword'} {' / '.join(str(w) for w in words)}")
+                pieces.append(
+                    f"{'Exclude' if cond.operator.value == 'NOT_IN' else 'Keyword'} {' / '.join(str(w) for w in words)}"
+                )
 
         if not pieces:
             continue
@@ -409,7 +447,5 @@ async def preview_conditions(payload: dict, session: SessionDep, user: CurrentUs
         .unique()
         .all()
     )
-    hits = [
-        _signal_out(s) for s in signals if evaluate_group(root, RadarView(s))
-    ]
+    hits = [_signal_out(s) for s in signals if evaluate_group(root, RadarView(s))]
     return {"matched": len(hits), "items": hits[:limit]}

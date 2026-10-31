@@ -292,7 +292,9 @@ export default function SignalPage() {
           isCriticalOrUnicorn={
             signal.status === "UNICORN_SIGNAL" ||
             signal.status === "BREAKOUT" ||
-            signal.ai_priority === "critical" ||
+            (signal.ai_priority === "critical" &&
+              signal.strength >= 45 &&
+              signal.status === "RISING") ||
             signal.strength >= 75
           }
         />

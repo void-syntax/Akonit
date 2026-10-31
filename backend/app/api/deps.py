@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import Annotated
 
 from fastapi import Cookie, Depends, HTTPException, status
@@ -18,6 +20,7 @@ from app.models.enums import uuid_str
 from app.models.user import UserProfile
 
 bearer_scheme = HTTPBearer(auto_error=False)
+_LOCAL_USER_LOCK = asyncio.Lock()
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -57,6 +60,11 @@ async def _ensure_local_user(session: AsyncSession) -> User:
     Set `local_user_email` to change the identity; set `auth_disabled` to false to
     restore real token-based auth for a hosted deployment.
     """
+    async with _LOCAL_USER_LOCK:
+        return await _ensure_local_user_locked(session)
+
+
+async def _ensure_local_user_locked(session: AsyncSession) -> User:
     email = settings.local_user_email
     existing = (
         await session.execute(
@@ -78,7 +86,20 @@ async def _ensure_local_user(session: AsyncSession) -> User:
     session.add(user)
     await session.flush()
     session.add(UserProfile(user_id=user.id))
-    await session.commit()
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        existing = (
+            await session.execute(
+                select(User)
+                .options(selectinload(User.profile))
+                .where(User.email == email)
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            raise
+        return existing
 
     return (
         await session.execute(

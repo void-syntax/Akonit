@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.models import Country, CustomTag, Source, Tag
@@ -43,7 +43,19 @@ async def list_countries(
 @router.get("/sources", response_model=list[SourceOut])
 async def list_sources(session: SessionDep):
     return (
-        (await session.execute(select(Source).order_by(Source.priority)))
+        (
+            await session.execute(
+                select(Source)
+                .where(
+                    or_(
+                        Source.status_reason.is_(None),
+                        Source.status_reason
+                        != "Collector removed; no longer collected.",
+                    )
+                )
+                .order_by(Source.priority)
+            )
+        )
         .scalars()
         .all()
     )

@@ -102,7 +102,7 @@ export function SignalBriefing({ signalId, isCriticalOrUnicorn }: SignalBriefing
           Сводка по сигналу
         </h3>
         <span className="ml-auto text-xs font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-          Надёжность данных: {(briefing.confidence_score * 100).toFixed(0)}%
+          Подтверждённость: не откалибрована
         </span>
       </div>
 

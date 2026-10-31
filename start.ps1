@@ -7,6 +7,7 @@ $BackendDir  = "$ProjectRoot\backend"
 $FrontendDir = "$ProjectRoot\frontend"
 $Python      = "$BackendDir\.venv\Scripts\python.exe"
 $LogDir      = "$ProjectRoot\logs"
+$Supervisor = "$ProjectRoot\worker-supervisor.ps1"
 $Requirements = "$BackendDir\requirements.txt"
 $FrontendModules = "$FrontendDir\node_modules"
 
@@ -65,20 +66,40 @@ if (-not (Test-Path "$FrontendModules\next\dist\bin\next")) {
     if ($LASTEXITCODE -ne 0) { throw "Dashboard dependency installation failed." }
 }
 
+function Test-EndpointReady([string]$url) {
+    try {
+        return (Invoke-WebRequest $url -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200
+    } catch {
+        return $false
+    }
+}
+
+$apiReady = Test-EndpointReady "http://127.0.0.1:8000/api/v1/health"
+$webReady = Test-EndpointReady "http://127.0.0.1:3000"
+
 # 1. Start Backend API as a quiet background process.
-Write-Host "[1/3] Starting Backend API on http://localhost:8000..." -ForegroundColor Yellow
-Start-Process -FilePath $Python -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000") `
-    -WorkingDirectory $BackendDir -WindowStyle Hidden `
-    -RedirectStandardOutput "$LogDir\api.stdout.log" -RedirectStandardError "$LogDir\api.stderr.log" | Out-Null
+if ($apiReady) {
+    Write-Host "[1/3] Backend API already healthy on http://localhost:8000." -ForegroundColor Green
+} else {
+    Write-Host "[1/3] Starting Backend API on http://localhost:8000..." -ForegroundColor Yellow
+    Start-Process -FilePath $Python -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000") `
+        -WorkingDirectory $BackendDir -WindowStyle Hidden `
+        -RedirectStandardOutput "$LogDir\api.stdout.log" -RedirectStandardError "$LogDir\api.stderr.log" | Out-Null
+}
 
 # 2. Start the low-resource collection scheduler.
-Write-Host "[2/3] Starting 24/7 Worker Scheduler..." -ForegroundColor Yellow
-Start-Process -FilePath $Python -ArgumentList @("-m", "app.workers.schedule") `
-    -WorkingDirectory $BackendDir -WindowStyle Hidden `
-    -RedirectStandardOutput "$LogDir\worker.stdout.log" -RedirectStandardError "$LogDir\worker.stderr.log" | Out-Null
+Write-Host "[2/3] Starting supervised 24/7 Worker Scheduler..." -ForegroundColor Yellow
+Remove-Item "$LogDir\worker.supervisor.stop" -Force -ErrorAction SilentlyContinue
+Start-Process -FilePath "powershell.exe" -ArgumentList @(
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $Supervisor,
+    "-Python", $Python, "-BackendDir", $BackendDir, "-LogDir", $LogDir
+) -WorkingDirectory $ProjectRoot -WindowStyle Hidden | Out-Null
 
 # 3. Start Frontend Dashboard (Next.js)
-Write-Host "[3/3] Starting Frontend Dashboard on http://localhost:3000..." -ForegroundColor Yellow
+if ($webReady) {
+    Write-Host "[3/3] Dashboard already healthy on http://localhost:3000." -ForegroundColor Green
+} else {
+    Write-Host "[3/3] Starting Frontend Dashboard on http://localhost:3000..." -ForegroundColor Yellow
 
 $nodeExe = "C:\Program Files\nodejs\node.exe"
 if (-not (Test-Path $nodeExe)) {
@@ -95,16 +116,15 @@ if (-not (Test-Path $nextCli)) { throw "Next.js CLI not found after dependency s
 Start-Process -FilePath $nodeExe -ArgumentList @($nextCli, "dev", "-p", "3000", "--hostname", "127.0.0.1") `
     -WorkingDirectory $FrontendDir -WindowStyle Hidden `
     -RedirectStandardOutput "$LogDir\web.stdout.log" -RedirectStandardError "$LogDir\web.stderr.log" | Out-Null
+}
 
 # Report success only after both services answer their health checks.
-$apiReady = $false
-$webReady = $false
 for ($attempt = 0; $attempt -lt 30; $attempt++) {
     if (-not $apiReady) {
-        try { $apiReady = (Invoke-WebRequest "http://127.0.0.1:8000/api/v1/health" -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200 } catch {}
+        $apiReady = Test-EndpointReady "http://127.0.0.1:8000/api/v1/health"
     }
     if (-not $webReady) {
-        try { $webReady = (Invoke-WebRequest "http://127.0.0.1:3000" -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200 } catch {}
+        $webReady = Test-EndpointReady "http://127.0.0.1:3000"
     }
     if ($apiReady -and $webReady) { break }
     Start-Sleep -Seconds 1

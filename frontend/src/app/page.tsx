@@ -112,13 +112,27 @@ export default function FeedPage() {
   }, [load]);
 
   useEffect(() => {
-    void (async () => {
+    let active = true;
+    const refreshStats = async () => {
+      if (document.visibilityState === "hidden") return;
       try {
-        setStats(await api.stats());
+        const next = await api.stats();
+        if (active) setStats(next);
       } catch {
-        /* hero stats are optional */
+        // Keep the latest good counts during brief API/network interruptions.
       }
-    })();
+    };
+    void refreshStats();
+    const timer = setInterval(() => void refreshStats(), 30_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refreshStats();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   useEffect(() => {

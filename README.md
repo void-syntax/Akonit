@@ -6,7 +6,7 @@ Condition-driven monitoring of the open internet. You define conditions, the
 system collects from many free public sources, detects **early signals** (not
 news), and notifies you on your phone.
 
-**Zero API cost. No LLM. No scraping services. No proxies. No login walls.**
+**Free public sources by default. No LLM or proxies. Optional official APIs can improve coverage; paid reads are capped and off until you add your own credentials.**
 
 ---
 
@@ -103,8 +103,45 @@ dashboard with `npm ci` and `npm run dev` from `frontend/`.
 
 The default installation needs no keys or accounts. Optional source credentials
 and push settings belong in your local `backend/.env`; never commit that file.
+For official X post search, add your X API Bearer Token there. X post reads are
+pay-per-use; Signal Radar requests at most 10 posts per search and caps reads at
+100/day by default. It polls that paid endpoint every three hours to preserve
+day-long coverage; the separate public trend feed remains more frequent. At the
+currently listed $0.005 per returned post, the hard cap is about $0.50/day;
+verify current rates and prepaid credits in X's
+Developer Console before enabling it. Set `X_POSTS_DAILY_READ_LIMIT=0` to keep
+official X post search disabled. X trends from the public trend feed remain
+available without a token.
+
+Official Reddit OAuth also uses credentials from your own approved Reddit app
+(`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`). The collector rotates through
+communities and falls back to public RSS/archive sources when OAuth is not
+configured. External app access requires Reddit approval and compliance with its
+Data API terms; register your app under Reddit's current developer process. Set
+`REDDIT_USER_AGENT` to the app name and your actual Reddit username/contact.
+TikTok's broad Research API access is restricted to eligible, approved
+researchers. Public tag pages may challenge automated requests, so this app does
+not retry them or bypass the challenge. Without approved Creative Center access,
+the TikTok trends collector stays in an optional-credentials state. The app
+cannot see all TikTok posts or private data.
+Approved applicants can also apply for TikTok's Commercial Content API; its
+creator-country filter currently covers EEA countries, excluding the UK and
+Switzerland. Add the approved
+`TIKTOK_COMMERCIAL_CLIENT_KEY` and `TIKTOK_COMMERCIAL_CLIENT_SECRET` to enable
+this separate branded-content signal source.
 The root `.env` is only for Docker Compose. Local database files, logs, caches,
 and generated signal digests are ignored by Git and remain on your computer.
+
+### Add more public sources
+
+Put comma-separated RSS or Atom URLs in `EXTRA_RSS_FEEDS` in your local
+`backend/.env`. The collector accepts up to ten HTTP(S) feeds and bounds each
+response to 2 MB. If a site has no feed, you can run RSS-Bridge yourself and add
+its feed URL; public shared bridge instances may disappear or rate-limit you.
+Bluesky is sampled from its public Jetstream WebSocket in short bounded windows.
+Mastodon instances are configurable through `MASTODON_INSTANCES` (up to six);
+public timelines and search depend on each server's configuration and do not
+amount to global federation search.
 
 The default ports are bound to `127.0.0.1`. Authentication is disabled for a
 single-user local installation; do not expose the app directly to the internet.
@@ -174,10 +211,25 @@ the pipeline.
 ## Sources
 
 Priority is social and viral content first, then trend/search, then AI/tech.
-Every adapter below was verified against the live site.
+The collector registry covers many public feeds and APIs. A registered adapter
+does not mean the platform grants complete access: check per-source health,
+credentials, rate limits, and each platform's current access terms.
 
 | # | Source | Strategy | Credentials | Status |
 |---|--------|----------|--------------|--------|
+| 1 | **TikTok** | public tag pages; approved Commercial Content API adds disclosed branded content | optional approval | limited public data |
+| 2 | **Bluesky Live** | short samples from public Jetstream WebSocket | none | live posts; bounded windows |
+| 3 | **Bluesky Search** | public AppView search | none | query-dependent |
+| 4 | **Mastodon** | public trends/statuses from up to 6 configured instances | none | instance-dependent |
+| 5 | **Reddit** | approved OAuth → public archive/RSS fallbacks | optional approved app | limited by instance/rate limits |
+| 6 | **X Trends** | public trend cards | none | third-party aggregate |
+| 7 | **X Posts** | official recent-post search, every 3h | Bearer token + credits | capped at 100 returned posts/day |
+| 8 | **Custom RSS / Atom** | user-configured feeds; up to 10 | none | depends on supplied feeds |
+| 9 | **YouTube** | channel RSS/public pages; Data API when configured | optional API key | route-dependent |
+| 10 | **Google Trends / News** | public trend feeds/search | none | public datasets |
+| 11 | **GitHub / Hugging Face** | public API/search and trending | optional tokens | public project signals |
+| 12 | **Product Hunt / HN / npm / DEV / Lobsters / Stack Overflow** | public APIs and RSS | mostly none | source-specific limits |
+| 13 | **Other registered adapters** | arXiv, SEC, patents, trademarks, Polymarket, etc. | source-specific | see source health |
 ### Why Instagram is marked honestly
 
 Public hashtag pages load their data through an **authenticated internal
@@ -193,8 +245,8 @@ We never bypass CAPTCHA, logins, paywalls, rate limits or anti-bot systems.
 ### Credential cascade
 
 Adapters declare an ordered list of strategies. The runner tries each until one
-produces data. Tokens are **optional** — if one is present in `.env` the better
-strategy is used automatically, otherwise the free one runs.
+produces data. Optional credentials activate the official API path where one is
+available; they do not bypass platform approval or usage limits.
 
 ---
 
@@ -481,7 +533,8 @@ frontend/
 
 - No LLM / no AI API anywhere — detection is deterministic.
 - No maps or geographic visualisation — countries are badges only.
-- No paid APIs, scraping services, proxies or trend aggregators.
+- No scraping-service dependency or proxy requirement. Optional official APIs
+  may cost money; the X reads budget is capped locally.
 - Signals are never deleted after a decline; history is always kept.
 cd frontend
 npm install
@@ -499,10 +552,11 @@ python -m tools.check_radar        # condition engine truth table
 python -m tools.live_check         # end-to-end against running servers
 python -m pytest tests -q          # 27 unit tests
 ```
-| 1 | **TikTok** | public tag pages (`__UNIVERSAL_DATA_FOR_REHYDRATION__`) → official Creative Center API | optional | ACTIVE |
-| 2 | **YouTube** | search results (`ytInitialData`, incl. Shorts) → channel RSS → Data API v3 | optional | ACTIVE |
-| 3 | **Reddit** | PullPush archive → search RSS → official OAuth | optional | ACTIVE |
-| 4 | **X / Twitter** | trends24 public trend cards (1h/6h/24h windows) → official API | optional | ACTIVE |
+| 1 | **TikTok** | public tag pages; approved Commercial Content API adds European branded content | approved client key/secret | limited public data |
+| 2 | **YouTube** | channel RSS / public page data; Data API v3 when configured | optional API key | depends on configured route |
+| 3 | **Reddit** | approved OAuth → public archive and RSS fallback | optional approved app | fallback works without OAuth |
+| 4 | **X Trends** | public trend cards | none | external trend feed |
+| 5 | **X Posts** | official recent-post search using radar keywords | Bearer Token + prepaid credits | disabled until token; max 100 reads/day |
 | 5 | **Google Trends** | Trending Now RSS per country (`approx_traffic`) | none | ACTIVE |
 | 6 | **Google News Trends** | `when:1h/6h/24h` recency operator | none | ACTIVE |
 | 7 | **GitHub** | search/repositories (new + fast star growth) | optional token | ACTIVE |

@@ -2383,6 +2383,8 @@ body {
 .statusbar-live { color: var(--brand-strong); }
 .statusbar-live[data-paused="true"] { color: var(--warn); }
 .statusbar-live[data-paused="true"] .statusbar-dot { background: var(--warn); }
+.statusbar-live[data-offline="true"] { color: var(--danger); }
+.statusbar-live[data-offline="true"] .statusbar-dot { background: var(--danger); animation: none; }
 .statusbar-toggle {
   min-height: 28px;
   padding: 0 10px;
@@ -2402,6 +2404,7 @@ body {
 .statusbar-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .statusbar-toggle:disabled { opacity: 0.55; cursor: wait; }
 .statusbar-error { color: var(--danger); font-size: 11px; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statusbar-note { color: var(--text-3); font-size: 11px; white-space: nowrap; }
 
 @media (min-width: 768px) {
   .page { padding-bottom: 52px; }
@@ -2466,4 +2469,48 @@ body {
 
 .feed-load-more .btn:disabled {
   cursor: wait;
+}
+
+.collector-panel { display: grid; gap: 20px; }
+.collector-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.collector-head .panel-title { margin: 0 0 6px; }
+.collector-head .muted { max-width: 680px; margin: 0; line-height: 1.55; }
+.collector-head > .btn { min-width: 176px; min-height: 44px; flex: 0 0 auto; }
+.collector-state { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: var(--t-12); }
+.collector-state.is-running { color: var(--success); }
+.collector-state .statusbar-dot { display: inline-block; }
+.collector-last-run, .collector-hint { margin: -8px 0 0; color: var(--text-2); font-size: var(--t-12); }
+.collector-hint { color: var(--warning); }
+.collector-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.collector-presets .field-label { margin-right: 4px; }
+.collector-keywords { margin: 0; }
+.collector-keywords .field-label { display: block; margin-bottom: 4px; }
+.collector-keywords > .muted { margin: 0 0 10px; }
+.collector-keyword-entry { display: flex; gap: 8px; max-width: 620px; }
+.collector-keyword-entry input { flex: 1; min-width: 0; }
+.collector-keyword-entry .btn { min-height: 40px; }
+.collector-keyword-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.collector-source-toolbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.collector-source-search { width: min(260px, 55%); min-height: 40px; }
+.collector-source-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; max-height: 520px; overflow: auto; padding-right: 4px; }
+.collector-source-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(90px, 1.2fr) 32px; align-items: center; gap: 10px; min-height: 54px; border-bottom: 1px solid var(--line); }
+.collector-source-row[data-disabled="true"] { opacity: .58; }
+.collector-source-name { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.collector-source-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-13); }
+.collector-source-name span { font-size: var(--t-11); }
+.collector-source-row input[type="range"] { min-width: 0; accent-color: var(--brand); }
+.collector-source-row output { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); font-size: var(--t-12); }
+.collector-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-height: 20px; }
+.statusbar-manage { color: var(--brand-strong); font-size: var(--t-11); text-decoration: none; }
+.statusbar-manage:hover { text-decoration: underline; }
+
+@media (max-width: 700px) {
+  .collector-head { flex-direction: column; }
+  .collector-head > .btn { width: 100%; }
+  .collector-source-list { grid-template-columns: 1fr; max-height: 440px; }
+  .collector-source-toolbar { align-items: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collector-panel *, .collector-panel *::before, .collector-panel *::after { scroll-behavior: auto !important; }
 }

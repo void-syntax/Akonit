@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import Text, cast, func, or_, select
+from sqlalchemy import Text, case, cast, func, or_, select
 
 from app.api.deps import CurrentUser, OptionalUser, SessionDep
 from app.core.config import settings
@@ -21,6 +22,22 @@ from app.models.enums import SignalStatus
 from app.schemas.api import IntelligenceBriefingOut, SignalDetail, SignalOut, SignalPage
 
 router = APIRouter(prefix="/signals", tags=["signals"])
+
+
+def _evidence_tier():
+    """SQL ordering tier: corroborated, measured, then unmeasured mentions."""
+    return case(
+        (Signal.cross_source_count > 1, 0),
+        (
+            or_(
+                Signal.current_activity > 0,
+                Signal.previous_activity > 0,
+                Signal.growth > 0,
+            ),
+            1,
+        ),
+        else_=2,
+    )
 
 
 def _apply_user_flags(
@@ -199,7 +216,24 @@ async def list_signals(
             (
                 await session.execute(
                     statement.order_by(
-                        Signal.strength.desc(), Signal.first_seen_at.desc()
+                        # Rank evidence quality before the heuristic activity
+                        # score: a lone, unmeasured headline must not outrank
+                        # a measured trend or an independently corroborated
+                        # event just because both are fresh.
+                        _evidence_tier(),
+                        # A formerly strong signal that is now FADING must not
+                        # sit above fresh live discoveries just because its
+                        # historical score has not decayed yet.
+                        case(
+                            (Signal.status == SignalStatus.BREAKOUT, 0),
+                            (Signal.status == SignalStatus.RISING, 1),
+                            (Signal.status == SignalStatus.NEW, 2),
+                            else_=3,
+                        ),
+                        Signal.strength.desc(),
+                        Signal.cross_source_count.desc(),
+                        Signal.last_seen_at.desc(),
+                        Signal.first_seen_at.desc(),
                     )
                     .limit(limit)
                     .offset(offset)
@@ -470,6 +504,122 @@ async def unmute_signal(signal_id: str, session: SessionDep, user: CurrentUser):
     if row:
         await session.delete(row)
         await session.commit()
+
+
+@router.delete("/all")
+async def clear_all_collected_signals(session: SessionDep, _user: CurrentUser):
+    """Reset collected signal data and request one fresh worker pass."""
+    from sqlalchemy import delete
+
+    from app.core.cache import cache_delete_prefix
+    from app.core.worker_control import (
+        is_worker_paused,
+        read_worker_status,
+        request_immediate_collection,
+        set_worker_paused,
+        write_worker_status,
+    )
+    from app.models.notifications import NotificationDelivery, SourceHealth
+    from app.models.signals import IntelligenceBriefing
+    from app.models.tags import SignalTag
+    from app.models.taxonomy import Source, SourceEvent
+    from app.pipeline.dlq import FailedSignal
+
+    was_paused = is_worker_paused()
+    if not was_paused:
+        set_worker_paused(True)
+
+    try:
+        # Let an in-flight collection finish before removing its database rows.
+        # The pause flag prevents a new scheduled cycle from starting meanwhile.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(settings.source_fetch_timeout_seconds * 2 + 10, 60)
+        while True:
+            worker = read_worker_status()
+            collecting = (
+                worker.get("status") == "running"
+                and worker.get("collection_state") == "running"
+            )
+            if not collecting:
+                await asyncio.sleep(0.25)
+                worker = read_worker_status()
+                if not (
+                    worker.get("status") == "running"
+                    and worker.get("collection_state") == "running"
+                ):
+                    break
+            if loop.time() >= deadline:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Collector is still finishing its current pass. Try again shortly.",
+                )
+            await asyncio.sleep(0.25)
+
+        signal_count = (
+            await session.execute(select(func.count()).select_from(Signal))
+        ).scalar_one()
+        event_count = (
+            await session.execute(select(func.count()).select_from(SourceEvent))
+        ).scalar_one()
+        snapshot_count = (
+            await session.execute(select(func.count()).select_from(SignalSnapshot))
+        ).scalar_one()
+
+        # Remove the history and all links that could make old results reappear.
+        await session.execute(delete(SourceEvent))
+        await session.execute(delete(FailedSignal))
+        await session.execute(delete(SignalSnapshot))
+        await session.execute(delete(SavedSignal))
+        await session.execute(delete(IgnoredSignal))
+        await session.execute(delete(RadarSignal))
+        await session.execute(delete(SignalTag))
+        await session.execute(delete(NotificationDelivery))
+        await session.execute(delete(IntelligenceBriefing))
+        await session.execute(delete(Signal))
+
+        # Reset collection counters so the next source-health report describes
+        # the new experiment rather than mixing it with the old run.
+        source_rows = (await session.execute(select(Source))).scalars().all()
+        for source in source_rows:
+            source.records_fetched = 0
+            source.total_records = 0
+            source.last_fetch = None
+            source.last_success = None
+        health_rows = (await session.execute(select(SourceHealth))).scalars().all()
+        for health in health_rows:
+            health.records_last_hour = 0
+            health.avg_duration_ms = 0.0
+            health.last_check_at = None
+            health.healthy_since = None
+            health.strategy = None
+        radar_rows = (await session.execute(select(Radar))).scalars().all()
+        for radar in radar_rows:
+            radar.match_count = 0
+            radar.last_matched_at = None
+            radar.last_notified_at = None
+
+        await session.commit()
+
+        await cache_delete_prefix("signals:list:")
+        write_worker_status(
+            last_collection_started_at=None,
+            last_collection_completed_at=None,
+            last_collection_result=None,
+            last_collection_error=None,
+        )
+        request_immediate_collection()
+        return {
+            "deleted_signals": signal_count,
+            "deleted_source_events": event_count,
+            "deleted_snapshots": snapshot_count,
+            "collection_queued": True,
+        }
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        if not was_paused:
+            set_worker_paused(False)
 
 
 @router.delete("/{signal_id}", status_code=status.HTTP_204_NO_CONTENT)

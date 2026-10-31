@@ -252,6 +252,14 @@ export const api = {
   deleteSignal: (id: string) =>
     request<void>(`/signals/${id}`, { method: "DELETE" }),
 
+  clearAllSignals: () =>
+    request<{
+      deleted_signals: number;
+      deleted_source_events: number;
+      deleted_snapshots: number;
+      collection_queued: boolean;
+    }>("/signals/all", { method: "DELETE" }),
+
   saved: () => request<Signal[]>("/saved"),
 
   radars: () => request<Radar[]>("/radars"),
@@ -325,8 +333,29 @@ export const api = {
       method: "POST",
     }),
 
+  startWorker: () =>
+    request<{ status: string }>("/system/start", {
+      method: "POST",
+    }),
+
   workerStatus: () =>
-    request<{ running: boolean; paused: boolean }>("/system/worker-status"),
+    request<{
+      running: boolean;
+      paused: boolean;
+      heartbeat_at?: string | null;
+      heartbeat_age_seconds?: number | null;
+      collection_state?: string;
+      next_source_check_at?: string | null;
+      last_collection_completed_at?: string | null;
+      last_collection_result?: {
+        fetched?: number;
+        signals_created?: number;
+        sources_due?: number;
+        sources_ok?: number;
+        sources_failed?: number;
+      } | null;
+      last_collection_error?: string | null;
+    }>("/system/worker-status"),
 
   adminStats: () =>
     request<{

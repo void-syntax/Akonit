@@ -148,6 +148,22 @@ async def cache_delete(key: str) -> None:
     _memory_cache.pop(key, None)
 
 
+async def cache_delete_prefix(prefix: str) -> None:
+    """Remove all cached results under a stable key namespace."""
+    client = await get_redis_client()
+    if client is not None:
+        try:
+            keys = [key async for key in client.scan_iter(match=f"{prefix}*")]
+            if keys:
+                await client.delete(*keys)
+        except Exception as exc:
+            logger.warning("cache: prefix delete failed for %s (%s)", prefix, exc)
+
+    for key in list(_memory_cache):
+        if key.startswith(prefix):
+            _memory_cache.pop(key, None)
+
+
 async def cache_aside(
     key: str,
     fetch_func: Callable[[], Awaitable[T]],

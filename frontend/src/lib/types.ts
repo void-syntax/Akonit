@@ -216,6 +216,8 @@ export interface Profile {
   default_countries: string[];
   default_sources: string[];
   default_tags: string[];
+  collector_source_weights: Record<string, number>;
+  collector_keywords: string[];
   quiet_hours: Record<string, unknown> | null;
   theme: string;
 }

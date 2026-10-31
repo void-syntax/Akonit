@@ -8,6 +8,9 @@ Write-Host "  =====================================" -ForegroundColor Red
 Write-Host ""
 
 # Kill processes bound to our ports
+$supervisorStopPath = Join-Path $PSScriptRoot "logs\worker.supervisor.stop"
+New-Item -ItemType File -Path $supervisorStopPath -Force | Out-Null
+
 $ports = @(8000, 3000)
 foreach ($port in $ports) {
     $connections = netstat -ano | Select-String "LISTENING" | Select-String ":$port\s"
@@ -40,6 +43,37 @@ Get-Process -Name "python" -ErrorAction SilentlyContinue | ForEach-Object {
             Write-Host "  [OK] Stopped python worker PID $($_.Id)" -ForegroundColor Yellow
         }
     } catch {}
+}
+
+# Let the supervisor exit after it observes the worker shutdown.
+Get-Process -Name "powershell" -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+        if ($cmdLine -and $cmdLine -like "*worker-supervisor.ps1*") {
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+}
+
+# A forced Windows shutdown cannot run the worker's finally block. Clear its
+# heartbeat explicitly so the UI does not keep showing a stale RUNNING state.
+$workerStatusPath = Join-Path $PSScriptRoot "logs\worker-status.json"
+if (Test-Path $workerStatusPath) {
+    try {
+        $workerStatus = Get-Content $workerStatusPath -Raw | ConvertFrom-Json
+        $workerStatus.status = "stopped"
+        $workerStatus.pid = $null
+        $workerStatus.collection_state = "idle"
+        $workerStatus.stopped_at = (Get-Date).ToUniversalTime().ToString("o")
+        $statusJson = $workerStatus | ConvertTo-Json -Compress
+        [System.IO.File]::WriteAllText(
+            $workerStatusPath,
+            $statusJson,
+            [System.Text.UTF8Encoding]::new($false)
+        )
+    } catch {
+        Write-Host "  [!!] Could not refresh worker status file" -ForegroundColor Gray
+    }
 }
 
 Write-Host ""
