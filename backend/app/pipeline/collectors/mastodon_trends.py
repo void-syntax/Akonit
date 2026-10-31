@@ -11,8 +11,13 @@ API полностью публичный, rate-limit зависит от кон
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
+import asyncio
+import re
+from html import unescape
+
+from app.core.config import settings
 
 from app.core.logging import get_logger
 from app.models.enums import SourceType
@@ -29,12 +34,38 @@ from app.pipeline.collectors.registry import register_source, run_strategy_casca
 logger = get_logger(__name__)
 
 # Major Mastodon instances with high activity and public APIs
-MASTODON_INSTANCES = [
-    "mastodon.social",
-    "fosstodon.org",
-    "infosec.exchange",
-    "hachyderm.io",
+DEFAULT_MASTODON_INSTANCES = [
+    "mastodon.social", "fosstodon.org", "infosec.exchange", "hachyderm.io"
 ]
+
+# Recurring calendar / lifestyle tags are commonly ranked by an instance's
+# local trends API, but add little value to a broad early-warning feed.
+LOW_SIGNAL_TAGS = {
+    "tgif",
+    "friday",
+    "fursuitfriday",
+    "viernesdeescritorio",
+    "sextaserie",
+    "thursdayfivelist",
+    "lastfourwatched",
+}
+
+
+def mastodon_instances() -> list[str]:
+    """Read bounded, hostname-only instances from environment settings."""
+    values = [v.strip().lower() for v in settings.mastodon_instances.split(",")]
+    hosts: list[str] = []
+    for host in values:
+        if not host or host in hosts or len(host) > 253:
+            continue
+        if not re.fullmatch(r"[a-z0-9.-]+", host) or host.startswith(".") or host.endswith("."):
+            continue
+        if ".." in host or any(not label or label.startswith("-") or label.endswith("-") for label in host.split(".")):
+            continue
+        hosts.append(host)
+        if len(hosts) >= 6:
+            break
+    return hosts or DEFAULT_MASTODON_INSTANCES
 
 
 def _parse_tag_uses(history: list[dict]) -> float:
@@ -63,6 +94,17 @@ def _growth_velocity(history: list[dict]) -> float:
         return 1.0
 
 
+def _is_early_tag(history: list[dict], *, min_today_uses: int = 25) -> bool:
+    """Keep tags with meaningful activity today and growth over their baseline."""
+    if not history:
+        return False
+    try:
+        today_uses = float(history[0].get("uses") or 0)
+    except (TypeError, ValueError):
+        return False
+    return today_uses >= min_today_uses and _growth_velocity(history) >= 1.5
+
+
 class MastodonTrendingTagsStrategy(Strategy):
     """Fetch trending hashtags from public Mastodon instances."""
 
@@ -73,25 +115,33 @@ class MastodonTrendingTagsStrategy(Strategy):
         seen: set[str] = set()
         successes = 0
 
-        for instance in MASTODON_INSTANCES:
+        instances = mastodon_instances()
+        semaphore = asyncio.Semaphore(3)
+
+        async def fetch_instance(instance: str):
             url = f"https://{instance}/api/v1/trends/tags?limit=20"
             try:
-                data = await client.get_json(url, retries=1)
+                async with semaphore:
+                    data = await client.get_json(url, retries=0, timeout=5.0)
             except Exception as exc:
-                logger.debug("mastodon %s trends/tags failed: %s", instance, exc)
-                continue
+                logger.debug("mastodon %s trends/tags failed: %s", instance, type(exc).__name__)
+                return instance, None
+            return instance, data
 
+        results = await asyncio.gather(*(fetch_instance(host) for host in instances))
+        for instance, data in results:
             if not isinstance(data, list):
                 continue
-
             successes += 1
             for tag in data:
                 name = tag.get("name") or ""
-                if not name or name.lower() in seen:
+                if not name or name.casefold() in LOW_SIGNAL_TAGS or name.lower() in seen:
                     continue
                 seen.add(name.lower())
 
                 history = tag.get("history") or []
+                if not _is_early_tag(history):
+                    continue
                 activity = _parse_tag_uses(history)
                 velocity = _growth_velocity(history)
 
@@ -142,10 +192,10 @@ class MastodonTrendingStatusesStrategy(Strategy):
         events: list[RawEvent] = []
         seen: set[str] = set()
 
-        for instance in MASTODON_INSTANCES[:2]:  # limit to 2 for speed
+        for instance in mastodon_instances()[:2]:  # cap requests per cycle
             url = f"https://{instance}/api/v1/trends/statuses?limit=20"
             try:
-                data = await client.get_json(url, retries=1)
+                data = await client.get_json(url, retries=0, timeout=5.0)
             except Exception as exc:
                 logger.debug(
                     "mastodon %s trends/statuses failed: %s", instance, exc
@@ -165,7 +215,7 @@ class MastodonTrendingStatusesStrategy(Strategy):
                 content_raw = status.get("content") or ""
                 # Strip HTML tags crudely for description
                 import re
-                content = re.sub(r"<[^>]+>", " ", content_raw).strip()[:400]
+                content = unescape(re.sub(r"<[^>]+>", " ", content_raw)).strip()[:400]
                 if not content:
                     continue
 
@@ -238,7 +288,7 @@ class MastodonTrendsAdapter(SourceAdapter):
     priority = 20
     cost = 0.0
     credentials_required = False
-    collect_interval_seconds = 1800
+    collect_interval_seconds = 600
     strategies = [MastodonTrendingTagsStrategy(), MastodonTrendingStatusesStrategy()]
 
     async def fetch(self, ctx: FetchContext, client: Any) -> FetchResult:

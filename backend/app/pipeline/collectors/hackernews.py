@@ -172,7 +172,7 @@ class HackerNewsAdapter(SourceAdapter):
     )
     capabilities = ["ai", "startups", "tools", "discussions", "velocity"]
     priority = 26
-    collect_interval_seconds = 1800
+    collect_interval_seconds = 300
     strategies = [HackerNewsFirebaseStrategy(), HackerNewsAlgoliaStrategy()]
 
     async def fetch(self, ctx: FetchContext, client: Any) -> FetchResult:

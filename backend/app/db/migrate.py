@@ -18,6 +18,8 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "default_countries": "JSON DEFAULT '[]'",
         "default_sources": "JSON DEFAULT '[]'",
         "default_tags": "JSON DEFAULT '[]'",
+        "collector_source_weights": "JSON DEFAULT '{}'",
+        "collector_keywords": "JSON DEFAULT '[]'",
         "quiet_hours": "JSON",
         "theme": "VARCHAR(16) DEFAULT 'dark'",
         "telegram_chat_id": "VARCHAR(64)",
@@ -42,6 +44,7 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "tags_updated_at": "TIMESTAMP",
         "expires_at": "TIMESTAMP",
         "content_hash": "VARCHAR(64)",
+        "ai_model_used": "VARCHAR(160)",
     },
     "source_events": {"text_hash": "VARCHAR(16)"},
 }
@@ -76,13 +79,19 @@ async def apply_migrations(engine: AsyncEngine) -> list[str]:
                 )
                 applied.append(f"{table}.{column}")
 
-        # Keep the hash lookup cheap once event history grows. Index creation is
-        # idempotent and does not rebuild or rewrite the existing SQLite table.
-        if "source_events" in tables and "text_hash" in MIGRATIONS["source_events"]:
+        # Keep event lookups cheap as the append-only collection history grows.
+        # These indexes are idempotent and don't rebuild the SQLite table.
+        if "source_events" in tables:
             await conn.execute(
                 text(
                     'CREATE INDEX IF NOT EXISTS "ix_source_events_text_hash" '
                     'ON "source_events" ("text_hash")'
+                )
+            )
+            await conn.execute(
+                text(
+                    'CREATE INDEX IF NOT EXISTS "ix_source_events_observed_cluster" '
+                    'ON "source_events" ("observed_at", "cluster_id")'
                 )
             )
 

@@ -16,6 +16,7 @@ curl_cffi==0.7.4
 redis==5.2.1
 tenacity==9.0.0
 feedparser==6.0.11
+websockets==15.0.1
 pywebpush==2.0.1
 cryptography==44.0.0
 python-dateutil==2.9.0.post0

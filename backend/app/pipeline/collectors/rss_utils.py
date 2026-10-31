@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
+from html import unescape
 from typing import Any
+from xml.etree import ElementTree as ET
 
 from app.pipeline.collectors.base import FetchContext, RawEvent
 
@@ -32,16 +35,8 @@ TAG_RE = re.compile(r"<(?:category|media:tag)[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>
 
 
 def _clean(text: str) -> str:
-    text = (
-        text.replace("<![CDATA[", "")
-        .replace("]]>", "")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", '"')
-        .replace("&#39;", "'")
-    )
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).strip()
+    text = text.replace("<![CDATA[", "").replace("]]>", "")
+    return unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text))).strip()
 
 
 def _field(block: str, name: str) -> str | None:
@@ -55,8 +50,6 @@ def _field(block: str, name: str) -> str | None:
 def _parse_date(value: str | None) -> datetime | None:
     if not value:
         return None
-    from email.utils import parsedate_to_datetime
-
     for parser in (parsedate_to_datetime, _iso):
         try:
             dt = parser(value)
@@ -75,16 +68,78 @@ def _iso(value: str) -> datetime | None:
 
 
 def parse_feed(xml: str) -> list[dict[str, Any]]:
-    """Return raw-ish dicts for every item/entry in an RSS or Atom document."""
-    blocks = FEED_RE.findall(xml) or ATOM_RE.findall(xml)
+    """Return items from RSS 2, RSS 1/RDF, or Atom feeds."""
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return _parse_feed_regex_fallback(xml)
+
     out: list[dict[str, Any]] = []
+    for node in root.iter():
+        if _local_name(node.tag) not in {"item", "entry"}:
+            continue
+
+        fields: dict[str, str] = {}
+        tags: list[str] = []
+        link_fallback: str | None = None
+        for child in node.iter():
+            if child is node:
+                continue
+            name = _local_name(child.tag)
+            value = _clean("".join(child.itertext()))
+            if name in {"title", "description", "summary", "content", "published", "updated", "pubdate", "date"} and value:
+                fields.setdefault(name, value)
+            elif name == "link":
+                href = child.attrib.get("href")
+                rel = child.attrib.get("rel", "alternate")
+                if href and rel == "alternate":
+                    fields.setdefault("link", href)
+                elif href:
+                    link_fallback = link_fallback or href
+                elif value:
+                    fields.setdefault("link", value)
+            elif name in {"category", "subject", "tag"} and value:
+                tags.append(value)
+
+        published = next(
+            (fields[key] for key in ("published", "pubdate", "updated", "date") if fields.get(key)),
+            None,
+        )
+        fields.setdefault("link", link_fallback or "")
+        out.append(
+            {
+                "title": fields.get("title"),
+                "link": fields.get("link"),
+                "description": fields.get("description") or fields.get("summary") or fields.get("content"),
+                "published": _parse_date(published),
+                "tags": list(dict.fromkeys(tags)),
+            }
+        )
+    return out
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].split(":")[-1].lower()
+
+
+def _parse_feed_regex_fallback(xml: str) -> list[dict[str, Any]]:
+    """Handle malformed feeds conservatively when XML parsing cannot recover."""
+    blocks = FEED_RE.findall(xml) or ATOM_RE.findall(xml)
+    out = []
     for block in blocks:
+        published = _field(block, "published")
+        if published and not _parse_date(published):
+            try:
+                parsed = parsedate_to_datetime(published)
+                published = parsed.isoformat()
+            except (TypeError, ValueError, OverflowError):
+                pass
         out.append(
             {
                 "title": _field(block, "title"),
                 "link": _field(block, "link"),
                 "description": _field(block, "description") or _field(block, "content"),
-                "published": _parse_date(_field(block, "published")),
+                "published": _parse_date(published),
                 "tags": [_clean(t) for t in TAG_RE.findall(block)],
             }
         )

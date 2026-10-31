@@ -5,10 +5,10 @@ Research findings (verified against the live site):
     embeds `__UNIVERSAL_DATA_FOR_REHYDRATION__` JSON with challenge stats
     (viewCount / videoCount / statsV2). This is publicly rendered page data —
     no login, no CAPTCHA, no anti-bot bypass.
-  * Official Creative Center API (ads.tiktok.com/creative_radar_api/...) returns
-    {"code":40101,"msg":"no permission"} until an app token is issued, so it is
-    implemented as a second strategy that activates automatically once
-    TIKTOK_API_TOKEN is present in the environment.
+  * The token-gated Creative Center endpoint is not the documented Research or
+    Commercial Content API; its availability depends on TikTok permissions.
+  * The approved Commercial Content API is implemented as a separate adapter
+    in `tiktok_commercial.py` and currently covers European commercial content.
 
 Parsing is defensive and key-based (never positional) so a site redesign
 degrades to DEGRADED instead of crashing the pipeline.
@@ -46,11 +46,13 @@ OG_DESC_RE = re.compile(r'<meta[^>]+property="og:description"[^>]+content="([^"]
 # Hashtag seeds covering the categories Signal Radar cares about most.
 # The worker rotates through them so collection stays affordable and diverse.
 DEFAULT_TAG_SEEDS: list[str] = [
-    "makeup", "skincare", "glassskin", "kbeauty", "koreanmakeup",
-    "prank", "pranks", "memes", "memetok", "challenges", "trending",
-    "fashion", "outfitideas", "beauty", "hair", "nails",
-    "viralproducts", "tiktokmademebuyit", "smallbusiness", "sidehustle",
-    "fyp", "viral", "trendingaudio", "aivideo", "chatgpt",
+    "trending", "viral", "memes", "challenges", "pranks",
+    "aivideo", "chatgpt", "tech", "gadgets", "opensource",
+    "crypto", "investing", "startups", "smallbusiness", "sidehustle",
+    "gaming", "fitness", "wellness", "foodtok", "travel",
+    "climate", "science", "education", "music", "fashion",
+    "beauty", "makeup", "skincare", "hair", "nails",
+    "viralproducts", "tiktokmademebuyit", "trendingaudio",
 ]
 
 COUNTRY_TAGS: dict[str, list[str]] = {
@@ -135,19 +137,32 @@ class PublicTagPageStrategy(Strategy):
 
     name = "public_tag_pages"
 
+    def __init__(self) -> None:
+        self._seed_offset = 0
+
     async def fetch(self, client: Any, ctx: FetchContext) -> list[RawEvent]:
         events: list[RawEvent] = []
         parsed_any = False
         failures = 0
 
-        for tag in self._seeds(ctx):
+        seeds = self._seeds(ctx)
+        if not seeds:
+            raise SourceUnavailable("no TikTok tag seeds configured")
+        batch_size = min(2, len(seeds))
+        batch = [
+            seeds[(self._seed_offset + offset) % len(seeds)]
+            for offset in range(batch_size)
+        ]
+        self._seed_offset = (self._seed_offset + batch_size) % len(seeds)
+
+        for tag in batch:
             url = f"https://www.tiktok.com/tag/{tag}"
             try:
-                html = await client.get_text(url, retries=1)
+                html = await client.get_text(url, retries=0, timeout=8.0)
             except SourceUnavailable as exc:
                 failures += 1
                 logger.debug("tiktok tag %s failed: %s", tag, exc)
-                if failures >= 4:
+                if failures >= batch_size:
                     break
                 continue
 
@@ -192,23 +207,9 @@ class PublicTagPageStrategy(Strategy):
         og_desc = _meta(OG_DESC_RE, html)
 
         if not records:
-            og_title = _meta(OG_TITLE_RE, html) or tag
-            return [
-                RawEvent(
-                    source_id="tiktok",
-                    external_id=f"tiktok:{tag.lower()}",
-                    title=f"#{og_title}",
-                    url=f"https://www.tiktok.com/tag/{tag}",
-                    description=og_desc or "",
-                    activity=0.0,
-                    activity_metric="view_count",
-                    country_code=country,
-                    category="hashtag",
-                    hashtags=[tag],
-                    thumbnail=og_image,
-                    metadata={"tag": tag, "stats_available": False},
-                )
-            ]
+            # A page title is not evidence of a trend. Do not turn the requested
+            # seed itself into a zero-activity signal when TikTok omits stats.
+            return []
 
         events: list[RawEvent] = []
         for rec in records[:5]:
@@ -263,7 +264,7 @@ def _meta(pattern: re.Pattern[str], html: str) -> str | None:
 
 
 class CreativeCenterApiStrategy(Strategy):
-    """Official Creative Center API — activates automatically when a token exists."""
+    """Token-gated Creative Center endpoint; availability depends on permissions."""
 
     name = "creative_center_api"
 
@@ -321,9 +322,9 @@ class TikTokAdapter(SourceAdapter):
     name = "TikTok"
     type = SourceType.SOCIAL
     description = (
-        "Trending hashtags and viral formats. Reads publicly rendered tag pages "
-        "for free and upgrades to the official Creative Center API automatically "
-        "when a TikTok app token is present."
+        "Hashtag trends through the authorized Creative Center endpoint. Public "
+        "tag pages currently challenge automated requests; no challenge bypass "
+        "is attempted. Commercial Content API coverage is a separate source."
     )
     capabilities = [
         "hashtags",
@@ -335,8 +336,17 @@ class TikTokAdapter(SourceAdapter):
         "views",
     ]
     priority = 1
-    collect_interval_seconds = 900
-    strategies = [PublicTagPageStrategy(), CreativeCenterApiStrategy()]
+    # Public tag pages now consistently serve an anti-bot challenge to the
+    # collector. Do not retry that page parser every cycle; use the supported
+    # Creative Center route only when an authorized token is configured.
+    credentials_required = True
+    collect_interval_seconds = 21600
+    credentials_hint = (
+        "TikTok's public tag pages currently return a challenge instead of "
+        "trend data. Configure an authorized Creative Center token to enable "
+        "hashtag trends; no challenge bypass is attempted."
+    )
+    strategies = [CreativeCenterApiStrategy()]
 
     async def fetch(self, ctx: FetchContext, client: Any) -> FetchResult:
         return await run_strategy_cascade(self, ctx, client)

@@ -5,10 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import (
-    NotificationChannel,
     NotificationFrequency,
     SignalStatus,
     SourceStatus,
@@ -40,6 +39,8 @@ class ProfileOut(ORMModel):
     default_countries: list[str] = Field(default_factory=list)
     default_sources: list[str] = Field(default_factory=list)
     default_tags: list[str] = Field(default_factory=list)
+    collector_source_weights: dict[str, int] = Field(default_factory=dict)
+    collector_keywords: list[str] = Field(default_factory=list)
     quiet_hours: dict[str, Any] | None = None
     theme: str = "dark"
 
@@ -159,6 +160,7 @@ class SignalOut(ORMModel):
     ai_noise_probability: float = 0.0
     ai_trending_score: float = 0.0
     ai_classified_at: datetime | None = None
+    ai_model_used: str | None = None
     is_saved: bool = False
     is_ignored: bool = False
 
@@ -244,8 +246,32 @@ class ProfileUpdate(BaseModel):
     default_countries: list[str] | None = None
     default_sources: list[str] | None = None
     default_tags: list[str] | None = None
+    collector_source_weights: dict[str, int] | None = None
+    collector_keywords: list[str] | None = None
     quiet_hours: dict[str, Any] | None = None
     theme: str | None = None
+
+    @field_validator("collector_source_weights")
+    @classmethod
+    def validate_collector_source_weights(cls, value: dict[str, int] | None):
+        if value is None:
+            return value
+        if len(value) > 200 or any(
+            not source_id or len(source_id) > 80 or not 0 <= weight <= 10
+            for source_id, weight in value.items()
+        ):
+            raise ValueError("Source priorities must be whole numbers from 0 to 10")
+        return value
+
+    @field_validator("collector_keywords")
+    @classmethod
+    def validate_collector_keywords(cls, value: list[str] | None):
+        if value is None:
+            return value
+        cleaned = list(dict.fromkeys(term.strip() for term in value if term.strip()))
+        if len(cleaned) > 30 or any(len(term) > 80 for term in cleaned):
+            raise ValueError("Use up to 30 search phrases, each 80 characters or less")
+        return cleaned
 
 
 class PushSubscribeRequest(BaseModel):

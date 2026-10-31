@@ -1,13 +1,17 @@
 from datetime import UTC, datetime, timedelta
 
-from app.pipeline.dedup.dedup import ClusterCandidate, find_cluster, should_merge_cross_source
+from app.pipeline.dedup.dedup import (
+    ClusterCandidate,
+    find_cluster,
+    should_merge_cross_source,
+)
 from app.pipeline.normalization.normalizer import simhash
 from app.pipeline.collectors.base import RawEvent
 
 
-def candidate(*, cluster="existing", source="reddit", text="New battery breakthrough raises energy density", url="https://example.com/story", age_minutes=1):
+def candidate(*, cluster="existing", source="reddit", text="New battery breakthrough raises energy density", url="https://example.com/story", age_minutes=1, title=""):
     observed = datetime.now(UTC) - timedelta(minutes=age_minutes)
-    return ClusterCandidate(cluster, source, url, simhash(text), observed.timestamp())
+    return ClusterCandidate(cluster, source, url, simhash(text), observed.timestamp(), title)
 
 
 def test_recent_cross_source_similar_text_merges():
@@ -41,6 +45,26 @@ def test_same_canonical_url_merges_across_sources():
     assert result.cluster_id == "existing"
 
 
+def test_same_source_repeated_descriptive_title_merges_with_changed_url():
+    existing = candidate(
+        source="github",
+        text="Unique Testing Breakthrough Detailed breakdown of a new architecture.",
+        title="Unique Testing Breakthrough",
+    )
+
+    result = find_cluster(
+        "Unique Testing Breakthrough",
+        "Slightly different description text.",
+        "https://github.com/repo/1-dup",
+        "github",
+        "item-2",
+        [existing],
+    )
+
+    assert result.cluster_id == "existing"
+    assert result.reason == "same_source_title"
+
+
 def test_relative_url_does_not_merge_across_sources():
     result = find_cluster(
         "Different title",
@@ -61,3 +85,18 @@ def test_observation_time_is_not_publication_time():
         published_at=published,
     )
     assert event.observed_at > published
+
+
+def test_precomputed_fingerprint_matches_internal_fingerprint():
+    original = candidate()
+    args = (
+        "New battery breakthrough raises energy density",
+        "New battery breakthrough raises energy density",
+        "https://other.example/story", "news", "item-2", [original],
+    )
+    regular = find_cluster(*args)
+    cached = find_cluster(
+        *args,
+        content_fingerprint=simhash(f"{args[0]} {args[1]}"),
+    )
+    assert cached == regular

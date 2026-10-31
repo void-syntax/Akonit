@@ -11,7 +11,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.enums import SourceType
 from app.pipeline.collectors.base import (
@@ -30,12 +29,12 @@ logger = get_logger(__name__)
 HIGH_SIGNAL_SUBREDDITS: dict[str, str] = {
     "MachineLearning": "ai",
     "programming": "tech",
-    "startups": "products",
     "cryptodev": "finance",
-    "LocalLLaMA": "ai",
-    "ChatGPT": "ai",
-    "SaaS": "tech",
-    "Entrepreneur": "money",
+    "datascience": "ai",
+    "cybersecurity": "tech",
+    "technology": "tech",
+    "economics": "money",
+    "medicine": "health",
 }
 
 
@@ -55,7 +54,11 @@ class RedditJsonStrategy(Strategy):
         for sub in dict.fromkeys(subs):
             url = f"https://www.reddit.com/r/{sub}/hot.json?limit=25"
             try:
-                data = await client.get_json(url, headers=headers, retries=1)
+                # Anonymous Reddit JSON is commonly blocked. Keep this fallback
+                # bounded so it cannot stall the continuous collection cycle.
+                data = await client.get_json(
+                    url, headers=headers, retries=0, timeout=3.0
+                )
             except Exception as exc:
                 failures += 1
                 logger.debug("reddit json r/%s failed: %s", sub, exc)
@@ -127,18 +130,29 @@ class RedditJsonStrategy(Strategy):
 class PullPushRedditStrategy(Strategy):
     name = "pullpush_reddit"
 
+    def __init__(self) -> None:
+        self._subreddit_offset = 0
+
     async def fetch(self, client: Any, ctx: FetchContext) -> list[RawEvent]:
         events: list[RawEvent] = []
         subs = list(HIGH_SIGNAL_SUBREDDITS.keys())
+        start = self._subreddit_offset % len(subs)
+        batch = [subs[(start + offset) % len(subs)] for offset in range(min(3, len(subs)))]
+        self._subreddit_offset = (start + len(batch)) % len(subs)
+        per_sub = max(1, min(10, ctx.limit // len(batch)))
+        failures = 0
 
-        for sub in subs:
-            url = f"https://api.pullpush.io/reddit/search/submission/?subreddit={sub}&size=25&sort=desc"
+        for sub in batch:
+            url = f"https://api.pullpush.io/reddit/search/submission/?subreddit={sub}&size={per_sub}&sort=desc"
             try:
-                data = await client.get_json(url, retries=1)
+                data = await client.get_json(url, retries=0)
             except Exception:
+                failures += 1
+                if failures >= 2:
+                    break
                 continue
 
-            for item in (data.get("data") or []):
+            for item in (data.get("data") or [])[:per_sub]:
                 title = item.get("title")
                 permalink = item.get("permalink")
                 if not title or not permalink:
@@ -178,9 +192,6 @@ class PullPushRedditStrategy(Strategy):
                         },
                     )
                 )
-            if len(events) >= ctx.limit:
-                break
-
         if not events:
             raise SourceUnavailable("pullpush reddit archive returned no submissions")
         return events[: ctx.limit]
@@ -197,8 +208,11 @@ class RedditOsintAdapter(SourceAdapter):
     )
     capabilities = ["reddit", "machinelearning", "programming", "startups", "cryptodev", "alpha_score", "engagement_velocity"]
     priority = 10
-    collect_interval_seconds = 1800
-    strategies = [RedditJsonStrategy(), PullPushRedditStrategy()]
+    collect_interval_seconds = 900
+    # Anonymous subreddit JSON requests consistently return 403 here. Reddit's
+    # other adapter already uses approved OAuth when configured; keep this
+    # second collector on the bounded, rotating public archive path only.
+    strategies = [PullPushRedditStrategy()]
 
     async def fetch(self, ctx: FetchContext, client: Any) -> FetchResult:
         cb = get_circuit_breaker(self.source_id)

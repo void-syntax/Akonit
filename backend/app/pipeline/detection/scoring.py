@@ -57,7 +57,9 @@ def recency_score(metrics: GrowthMetrics, window_minutes: int = 15) -> float:
 
 
 def absolute_score(metrics: GrowthMetrics) -> float:
-    """log-scaled so popularity counts, but never dominates velocity."""
+    """Size for measured feeds; local burst surprise for mention-only feeds."""
+    if metrics.current <= 0 and not metrics.has_baseline:
+        return metrics.burst_score
     return min(math.log10(max(metrics.absolute, 0) + 1) / 7.0, 1.0)
 
 
@@ -68,6 +70,11 @@ def persistence_score(metrics: GrowthMetrics) -> float:
 
 def cross_source_score(count: int) -> float:
     return min(max(count - 1, 0) / 2.0, 1.0)
+
+
+def source_evidence_factor(count: int) -> float:
+    """Discount weak single-source evidence while retaining new discoveries."""
+    return min(0.7 + max(count - 1, 0) * 0.1, 0.9)
 
 
 def staleness_penalty(metrics: GrowthMetrics, window_minutes: int = 15) -> float:
@@ -94,7 +101,8 @@ def compute_strength(
 ) -> float:
     """Return strength in the 0..100 range.
 
-    Weighted sum of components, combined with ai_priority_score boost, alpha intelligence score, cross-source confirmation, and substance factor.
+    Weighted activity score, modestly calibrated by independent source evidence.
+    AI priority is deliberately excluded: it labels a signal but cannot validate it.
     """
     # 1. BullshitScrubber evaluation
     scrub = BullshitScrubber.evaluate(text_content)
@@ -109,23 +117,34 @@ def compute_strength(
         + persistence_score(metrics) * settings.weight_persistence
         + cross_source_score(cross_source_count) * settings.weight_cross_source
     )
-    base_total *= staleness_penalty(metrics, window_minutes) * effective_substance
+    base_total *= (
+        staleness_penalty(metrics, window_minutes)
+        * effective_substance
+        * source_evidence_factor(cross_source_count)
+    )
     
-    # 2. Capital Backing integration (SEC Form D/4 & Polymarket liquidity)
+    # Optional capital data can add at most 15 points; absent data adds zero.
     cap_factor = calculate_capital_backing_factor(sec_volume, polymarket_liquidity)
     enhanced_alpha_score = max(alpha_score, cap_factor)
 
-    # 3. Enhanced institutional intelligence scoring
-    ai_boost = ai_priority_score * 12.0
+    # 3. Bounded additive evidence bonuses.
     alpha_boost = (enhanced_alpha_score / 100.0) * 15.0  # Institutional alpha boost
-    cross_bonus = min(cross_source_count * 3.5, 15.0) # Cross-source synergy bonus
+    cross_bonus = min(max(cross_source_count - 1, 0) * 2.5, 5.0)
     
-    total = base_total + ai_boost + alpha_boost + cross_bonus
+    total = base_total + alpha_boost + cross_bonus
 
-    # 4. Multi-source cross-corroboration matrix (UNICORN_SIGNAL 2.0x strength multiplier)
+    # A newly observed item with no measurable engagement and no independent
+    # corroboration is a mention, not evidence of a trend. Preserve it in the
+    # feed, but keep recency alone from outranking measured breakout signals.
+    if metrics.current <= 0 and not metrics.has_baseline and cross_source_count <= 1:
+        # Keep unmeasured mentions low while preserving the text quality
+        # penalty in their relative order.
+        total = min(total, 14.0 * scrub["substance_factor"] * substance_factor)
+
+    # 4. Independent families add a modest corroboration multiplier.
     corrob = evaluate_cross_corroboration(sources)
     if corrob["is_unicorn"]:
-        total *= 2.0
+        total *= corrob["strength_multiplier"]
 
     return round(min(max(total, 0.0), 100.0), 2)
 
@@ -157,9 +176,26 @@ def strength_components(
     base_cross = round(
         cross_source_score(cross_source_count) * settings.weight_cross_source, 2
     )
-    ai_boost = round(ai_priority_score * 15.0, 2)
-    cross_bonus = round(min(cross_source_count * 3.0, 15.0), 2)
+    raw_base = (
+        base_growth
+        + base_velocity
+        + base_acceleration
+        + base_recency
+        + base_absolute
+        + base_persistence
+        + base_cross
+    )
+    # Kept in the breakdown for UI compatibility; AI is descriptive only.
+    ai_boost = 0.0
+    cross_bonus = round(min(max(cross_source_count - 1, 0) * 2.5, 5.0), 2)
     corrob = evaluate_cross_corroboration(sources)
+    unconfirmed_cap = (
+        14.0
+        if metrics.current <= 0
+        and not metrics.has_baseline
+        and cross_source_count <= 1
+        else 0.0
+    )
     
     return {
         "growth": base_growth,
@@ -169,10 +205,22 @@ def strength_components(
         "absolute": base_absolute,
         "persistence": base_persistence,
         "cross_source": base_cross,
+        "source_evidence_factor": round(source_evidence_factor(cross_source_count), 3),
+        "base_after_factors": round(
+            raw_base
+            * staleness_penalty(metrics, window_minutes)
+            * substance_factor
+            * scrub["substance_factor"]
+            * source_evidence_factor(cross_source_count),
+            2,
+        ),
         "ai_boost": ai_boost,
         "cross_bonus": cross_bonus,
+        "unconfirmed_mention_cap": unconfirmed_cap,
         "staleness_factor": round(staleness_penalty(metrics, window_minutes), 3),
-        "substance_factor": round(scrub["substance_factor"], 3),
+        "substance_factor": round(
+            substance_factor * scrub["substance_factor"], 3
+        ),
         "capital_backing": calculate_capital_backing_factor(sec_volume, polymarket_liquidity),
-        "strength_multiplier": 2.0 if corrob["is_unicorn"] else 1.0,
+        "strength_multiplier": corrob["strength_multiplier"],
     }

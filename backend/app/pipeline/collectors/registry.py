@@ -77,6 +77,20 @@ def _mark_optional_credentials(adapter: SourceAdapter) -> None:
     )
 
 
+def _is_missing_credentials(error: str) -> bool:
+    text = error.lower()
+    return any(
+        phrase in text
+        for phrase in (
+            "not configured",
+            "no instagram graph api token",
+            "no tiktok app token",
+            "no x api bearer token",
+            "reddit oauth credentials are not configured",
+        )
+    )
+
+
 async def run_strategy_cascade(
     adapter: SourceAdapter, ctx: FetchContext, client: HttpClient
 ) -> FetchResult:
@@ -88,7 +102,9 @@ async def run_strategy_cascade(
     rl = get_rate_limiter(adapter.source_id)
 
     if cb.is_open():
-        logger.info("[%s] circuit is OPEN; source temporarily skipped.", adapter.source_id)
+        logger.info(
+            "[%s] circuit is OPEN; source temporarily skipped.", adapter.source_id
+        )
         return FetchResult(
             source_id=adapter.source_id,
             events=[],
@@ -107,7 +123,10 @@ async def run_strategy_cascade(
         )
 
     if not await rl.async_acquire():
-        logger.warning("[%s] rate limit exceeded. Returning empty list gracefully.", adapter.source_id)
+        logger.warning(
+            "[%s] rate limit exceeded. Returning empty list gracefully.",
+            adapter.source_id,
+        )
         return FetchResult(
             source_id=adapter.source_id,
             events=[],
@@ -125,15 +144,25 @@ async def run_strategy_cascade(
         except SourceUnavailable as exc:
             errors.append(f"{strategy.name}: {exc}")
             last_failure = str(exc)
-            logger.info("[%s] strategy %s unavailable: %s", adapter.source_id, strategy.name, exc)
+            logger.info(
+                "[%s] strategy %s unavailable: %s",
+                adapter.source_id,
+                strategy.name,
+                exc,
+            )
             continue
         except Exception as exc:  # unexpected: treat as strategy failure
             errors.append(f"{strategy.name}: unexpected {exc!r}")
             last_failure = repr(exc)
-            logger.warning("[%s] strategy %s crashed: %r", adapter.source_id, strategy.name, exc)
+            logger.warning(
+                "[%s] strategy %s crashed: %r", adapter.source_id, strategy.name, exc
+            )
             continue
 
         if not events:
+            # An empty response is a valid result only when there is no more
+            # informative fallback. Continue the cascade so a primary API that
+            # has no matching items cannot hide public fallback data.
             errors.append(f"{strategy.name}: returned no events")
             last_failure = "returned no events"
             continue
@@ -152,6 +181,28 @@ async def run_strategy_cascade(
         )
 
     if not strategy_succeeded:
+        if last_failure == "returned no events":
+            if not errors or all("returned no events" in error for error in errors):
+                # Every strategy answered but none had new items.
+                cb.record_success()
+                return FetchResult(
+                    source_id=adapter.source_id,
+                    events=[],
+                    strategy="none",
+                    ok=True,
+                    notes="no new events",
+                )
+        if errors and all(_is_missing_credentials(error) for error in errors):
+            # A missing optional credential is a configuration state, not a
+            # provider outage. Avoid tripping its circuit breaker/cooldown.
+            _mark_optional_credentials(adapter)
+            return FetchResult(
+                source_id=adapter.source_id,
+                events=[],
+                strategy="none",
+                ok=False,
+                error=" | ".join(errors),
+            )
         cb.record_failure()
         if last_failure not in {"returned no events", None}:
             cooldown = max(settings.source_cooldown_seconds, 0)
@@ -173,9 +224,7 @@ async def collect_all(
 ) -> list[FetchResult]:
     """Run every (or the selected) adapter concurrently; failures are isolated."""
     adapters = [
-        a
-        for a in all_adapters()
-        if source_ids is None or a.source_id in source_ids
+        a for a in all_adapters() if source_ids is None or a.source_id in source_ids
     ]
     client = HttpClient()
     try:

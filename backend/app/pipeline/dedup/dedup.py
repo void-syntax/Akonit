@@ -8,12 +8,17 @@ OR their content fingerprints are close enough in simhash space and recent.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from app.core.config import settings
-from app.pipeline.normalization.normalizer import canonicalize_url, similarity, simhash
+from app.pipeline.normalization.normalizer import (
+    canonicalize_url,
+    normalize_text,
+    similarity,
+    simhash,
+)
 
 
 @dataclass
@@ -23,6 +28,16 @@ class ClusterCandidate:
     url: str
     simhash: int
     observed_at: float
+    title: str = ""
+    external_id: str = ""
+    canonical_url: str = field(init=False)
+    normalized_title: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        # Candidates are compared against many events per cycle. Parse and
+        # normalize each candidate URL once instead of once per comparison.
+        self.canonical_url = canonicalize_url(self.url)
+        self.normalized_title = normalize_text(self.title)
 
 
 @dataclass
@@ -48,6 +63,7 @@ def find_cluster(
     candidates: list[ClusterCandidate],
     *,
     window_minutes: int | None = None,
+    content_fingerprint: int | None = None,
 ) -> DedupDecision:
     """Return the cluster this event belongs to."""
     window = (
@@ -56,9 +72,15 @@ def find_cluster(
         else settings.detect_dedup_window_minutes
     )
     own_canonical = canonicalize_url(url)
-    own_hash = simhash(f"{title} {description}")
+    own_hash = (
+        content_fingerprint
+        if content_fingerprint is not None
+        else simhash(f"{title} {description}")
+    )
+    own_title = normalize_text(title)
 
     exact_url: ClusterCandidate | None = None
+    exact_title: ClusterCandidate | None = None
     best: tuple[float, ClusterCandidate] | None = None
     now_ts = datetime.now(UTC).timestamp()
     cutoff = now_ts - window * 60
@@ -67,14 +89,25 @@ def find_cluster(
         if candidate.observed_at < cutoff or candidate.observed_at > now_ts + 300:
             continue
 
-        candidate_canonical = canonicalize_url(candidate.url)
         if _same_canonical_url(
             own_canonical,
-            candidate_canonical,
+            candidate.canonical_url,
             source_a=source_id,
             source_b=candidate.source_id,
         ):
             exact_url = candidate
+            break
+
+        # A stable, sufficiently descriptive title from the same source is a
+        # cheap idempotency key even when that source changes its permalink or
+        # accompanying summary between fetches. Keep cross-source matching on
+        # the stricter content fingerprint path below.
+        if (
+            source_id == candidate.source_id
+            and len(own_title) >= 24
+            and own_title == candidate.normalized_title
+        ):
+            exact_title = candidate
             break
 
         score = similarity(own_hash, candidate.simhash)
@@ -85,6 +118,9 @@ def find_cluster(
 
     if exact_url:
         return DedupDecision(exact_url.cluster_id, False, "exact_url", 1.0)
+
+    if exact_title:
+        return DedupDecision(exact_title.cluster_id, False, "same_source_title", 1.0)
 
     if best:
         score, candidate = best

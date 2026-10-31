@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.workers import tasks
+from app.workers import schedule
 from app.workers.schedule import _cycle_collect, _cycle_match, _cycle_metrics, _cycle_notify
 
 
@@ -63,6 +64,7 @@ class _FakeSession:
     def __init__(self) -> None:
         self.entered = False
         self.exited = False
+        self.commit_count = 0
 
     async def __aenter__(self) -> "_FakeSession":
         self.entered = True
@@ -73,6 +75,9 @@ class _FakeSession:
 
     async def execute(self, *a, **k) -> _FakeQuery:  # noqa: ANN002
         return _FakeQuery()
+
+    async def commit(self) -> None:
+        self.commit_count += 1
 
 
 @pytest.fixture
@@ -87,6 +92,7 @@ def stubbed(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
             fetched = 350
             signals_created = 12
             signals_updated = 40
+            sources_due = 15
             sources_ok = 14
             sources_failed = 1
 
@@ -151,6 +157,28 @@ async def test_notification_task_flushes_deliveries(stubbed: dict[str, int]) -> 
 
 
 @pytest.mark.asyncio
+async def test_match_and_notification_cycles_commit_delivery_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession()
+
+    async def fake_match(_session):
+        return {"notifications_queued": 2}
+
+    async def fake_notify(_session):
+        return {"sent": 1, "failed": 0, "processed": 1}
+
+    monkeypatch.setattr(schedule, "SessionLocal", lambda: session)
+    monkeypatch.setattr(schedule, "run_matching_task", fake_match)
+    monkeypatch.setattr(schedule, "run_notification_task", fake_notify)
+
+    await _cycle_match()
+    await _cycle_notify()
+
+    assert session.commit_count == 2
+
+
+@pytest.mark.asyncio
 async def test_metrics_task_refreshes(stubbed: dict[str, int]) -> None:
     count = await tasks.refresh_metrics_task(_FakeSession())
     assert stubbed["refresh"] == 1
@@ -200,6 +228,7 @@ class _Stats:
         self.fetched = 350
         self.signals_created = 12
         self.signals_updated = 40
+        self.sources_due = 15
         self.sources_ok = 14
         self.sources_failed = failed
 

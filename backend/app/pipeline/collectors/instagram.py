@@ -70,7 +70,7 @@ class GraphApiStrategy(Strategy):
         events: list[RawEvent] = []
         for tag in seeds:
             url = (
-                f"https://graph.instagram.com/v21.0/ig_hashtag_search"
+                f"https://graph.facebook.com/v26.0/ig_hashtag_search"
                 f"?user_id={settings.meta_app_id}&q={tag}&access_token={token}"
             )
             data = await client.get_json(url)
@@ -79,7 +79,7 @@ class GraphApiStrategy(Strategy):
                 if not hashtag_id:
                     continue
                 insights_url = (
-                    f"https://graph.instagram.com/v21.0/{hashtag_id}"
+                    f"https://graph.facebook.com/v26.0/{hashtag_id}"
                     f"?fields=name,media_count&access_token={token}"
                 )
                 try:
@@ -111,17 +111,17 @@ class InstagramAdapter(SourceAdapter):
     name = "Instagram"
     type = SourceType.SOCIAL
     description = (
-        "Reels, hashtags and emerging creators via the official Meta Graph API. "
-        "Fully implemented; needs a Meta app token to run."
+        "Public hashtag media via Meta's Instagram Graph API, subject to a linked "
+        "Professional account and approved Public Content Access permission."
     )
     capabilities = ["reels", "hashtags", "creators", "beauty", "fashion"]
     priority = 5
-    collect_interval_seconds = 1800
+    collect_interval_seconds = 21600
     credentials_required = True
     credentials_hint = (
-        "Needs META_APP_ID + an Instagram Graph API access token "
-        "(instagram_basic). Public hashtag pages load their data through an "
-        "authenticated internal call, which we do not circumvent."
+        "Needs a linked Instagram Business/Creator account, Meta app review for "
+        "Instagram Public Content Access, and an authorized access token. "
+        "Without those, public hashtag pages do not expose usable counts."
     )
     strategies = [GraphApiStrategy()]
 

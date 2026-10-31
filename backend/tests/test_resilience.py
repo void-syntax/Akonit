@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import time
 import pytest
 
@@ -9,11 +8,13 @@ from app.pipeline.resilience import (
     CircuitState,
     RateLimiter,
     get_circuit_breaker,
-    get_rate_limiter,
-    ResilienceGuard,
 )
 from app.pipeline.collectors.base import FetchContext, FetchResult, Strategy
-from app.pipeline.collectors.registry import run_strategy_cascade, SourceAdapter, register_source
+from app.pipeline.collectors.registry import (
+    run_strategy_cascade,
+    SourceAdapter,
+    register_source,
+)
 from app.models.enums import SourceType
 
 
@@ -61,11 +62,11 @@ def test_circuit_breaker_half_opens_after_cooldown():
 def test_rate_limiter_blocks_excess_requests():
     # 60 req per min = 1 req per sec. Capacity = 2.
     rl = RateLimiter("test_source_rl", rate_per_minute=60.0, capacity=2.0)
-    
+
     # Consume 2 tokens
     assert rl.acquire(1.0) is True
     assert rl.acquire(1.0) is True
-    
+
     # 3rd request should fail since bucket is empty
     assert rl.acquire(1.0) is False
 
@@ -98,8 +99,10 @@ class MockFailingAdapter(SourceAdapter):
 @pytest.mark.asyncio
 async def test_adapters_return_empty_list_gracefully_when_circuit_open():
     adapter = get_adapter_local("test_failing_adapter")
-    cb = get_circuit_breaker("test_failing_adapter", failure_threshold=1, open_seconds=60.0)
-    
+    cb = get_circuit_breaker(
+        "test_failing_adapter", failure_threshold=1, open_seconds=60.0
+    )
+
     # Force circuit open
     cb._state = CircuitState.OPEN
     cb._opened_at = time.monotonic()
@@ -114,4 +117,5 @@ async def test_adapters_return_empty_list_gracefully_when_circuit_open():
 
 def get_adapter_local(source_id: str):
     from app.pipeline.collectors.registry import get_adapter
+
     return get_adapter(source_id)

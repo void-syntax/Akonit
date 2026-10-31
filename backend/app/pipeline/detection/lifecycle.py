@@ -6,6 +6,8 @@ reflects where the object is now.
 
 from __future__ import annotations
 
+from typing import Sequence
+
 from app.core.config import settings
 from app.models.enums import SignalStatus
 from app.pipeline.detection.metrics import GrowthMetrics
@@ -45,6 +47,7 @@ def classify(
     cross_source_count: int = 1,
     window_minutes: int = 15,
     ai_priority_score: float = 0.0,
+    sources: Sequence[str] = (),
 ) -> tuple[SignalStatus, float]:
     """Return (status, strength) for the current observation.
 
@@ -57,8 +60,21 @@ def classify(
       pushed almost everything into FADING before.
     """
     strength = compute_strength(
-        metrics, cross_source_count=cross_source_count, window_minutes=window_minutes, ai_priority_score=ai_priority_score
+        metrics,
+        cross_source_count=cross_source_count,
+        window_minutes=window_minutes,
+        ai_priority_score=ai_priority_score,
+        sources=sources,
     )
+
+    # Some sources (notably sampled live posts) provide no numeric activity
+    # count. Repeatedly seeing such an item is not evidence of growth. Keep it
+    # new until the source supplies a measurable baseline; retain terminal or
+    # already established states rather than inventing a trend from zeroes.
+    if metrics.current <= 0 and not metrics.has_baseline:
+        if previous_status in (SignalStatus.NEW, SignalStatus.RISING):
+            return SignalStatus.NEW, strength
+        return previous_status, strength
 
     velocity = metrics.velocity
     history = len(metrics.points)
@@ -82,6 +98,7 @@ def classify(
     )
     healthy = (
         strength >= settings.detect_rising_strength
+        and velocity > 0.0
         and velocity > -settings.detect_fading_drop_ratio * 100
     )
 
@@ -103,8 +120,8 @@ def classify(
     elif history <= 1 and strength >= settings.detect_min_strength:
         status = SignalStatus.NEW
     else:
-        # Weak and not growing: decaying rather than brand new.
-        status = SignalStatus.NEW if metrics.is_new else SignalStatus.RISING
+        # No positive momentum means the item is not currently rising.
+        status = SignalStatus.NEW if metrics.is_new else SignalStatus.FADING
 
     if status not in ALLOWED.get(previous_status, {status}):
         status = previous_status

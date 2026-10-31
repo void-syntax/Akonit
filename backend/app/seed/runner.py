@@ -96,6 +96,18 @@ async def seed_sources(session: AsyncSession) -> int:
     added = 0
     updated = 0
 
+    # Retire removed collectors while keeping old source events for history.
+    for retired_id in ("lemmy", "reddit_osint"):
+        retired = existing.get(retired_id)
+        if retired is None:
+            continue
+        retired.enabled = False
+        retired.status = SourceStatus.OFFLINE
+        retired.status_reason = "Collector removed; no longer collected."
+        retired.last_error = retired.status_reason
+        retired.credentials_required = False
+        updated += 1
+
     for adapter in all_adapters():
         needs_credentials = adapter.credentials_required
         current = existing.get(adapter.source_id)

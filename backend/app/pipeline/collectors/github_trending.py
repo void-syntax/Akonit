@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from app.core.config import settings
@@ -64,6 +64,20 @@ def _parse_int(text: str | None) -> int:
         return int(cleaned)
     except ValueError:
         return 0
+
+
+def _activity_for_repo(repo: dict[str, Any]) -> tuple[float, str]:
+    """Return a measured GitHub activity value with its actual unit."""
+    stars_today = int(repo.get("stars_today") or 0)
+    if stars_today > 0:
+        return float(stars_today), "stars_today"
+
+    total_stars = int(repo.get("total_stars") or 0)
+    if total_stars > 0:
+        # Total popularity is still useful context, but it is not daily growth.
+        return float(total_stars), "total_stars"
+
+    return 0.0, "unmeasured"
 
 
 def _parse_trending_html(html: str, since: str) -> list[dict]:
@@ -131,7 +145,10 @@ class GitHubTrendingHtmlStrategy(Strategy):
         for since in ("daily", "weekly"):
             url = f"https://github.com/trending?since={since}"
             try:
-                html = await client.get_text(url, retries=1)
+                # There are two sequential windows under a 20s source budget.
+                # Bound each independently and avoid a retry/backoff consuming
+                # the time reserved for the second window and other sources.
+                html = await client.get_text(url, retries=0, timeout=8.0)
             except SourceUnavailable as exc:
                 logger.debug("github trending %s failed: %s", since, exc)
                 continue
@@ -146,9 +163,9 @@ class GitHubTrendingHtmlStrategy(Strategy):
                     continue
                 seen.add(key)
 
-                # Activity = stars gained today (primary spike indicator)
-                # fallback to total_stars if today-stars not found
-                activity = float(repo["stars_today"] or repo["total_stars"] or rank)
+                # Keep the unit honest: lifetime stars are not today's growth,
+                # and a list rank is not an activity measurement.
+                activity, activity_metric = _activity_for_repo(repo)
 
                 events.append(
                     RawEvent(
@@ -158,7 +175,7 @@ class GitHubTrendingHtmlStrategy(Strategy):
                         url=repo["url"],
                         description=repo["description"] or f"Trending GitHub repo: {repo['full_name']}",
                         activity=activity,
-                        activity_metric="stars_today",
+                        activity_metric=activity_metric,
                         rank=rank if since == "daily" else None,
                         category="open_source",
                         hashtags=[repo["language"].lower()] if repo["language"] else [],
@@ -182,8 +199,11 @@ class GitHubTrendingHtmlStrategy(Strategy):
             raise SourceUnavailable(
                 "GitHub Trending HTML returned no repos (layout changed or blocked)"
             )
-        # Sort by stars gained today — best early signal
-        events.sort(key=lambda e: e.activity, reverse=True)
+        # Prefer actual daily gains over lifetime popularity counts.
+        events.sort(
+            key=lambda e: (e.activity_metric == "stars_today", e.activity),
+            reverse=True,
+        )
         return events[: ctx.limit]
 
 
@@ -221,7 +241,6 @@ class GitHubSearchApiStrategy(Strategy):
             raise SourceUnavailable("GitHub Search API returned no repositories")
 
         events: list[RawEvent] = []
-        now = datetime.now(UTC)
         for rank, item in enumerate(items[: ctx.limit], start=1):
             full_name = item.get("full_name") or ""
             if not full_name:

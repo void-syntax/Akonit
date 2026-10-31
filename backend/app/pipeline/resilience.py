@@ -15,10 +15,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import sys
 from enum import Enum
-from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Windows background workers often inherit cp1252 stdout from Start-Process.
+# Make log output resilient to status arrows and other UTF-8 symbols.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):
+            pass
 
 # ──────────────────────────────────────────────────────────────── constants ──
 

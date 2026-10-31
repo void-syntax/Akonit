@@ -9,6 +9,7 @@ No credentials, no paid tier, works for every country geo.
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime
 from typing import Any
 
@@ -46,6 +47,45 @@ DEFAULT_GEO: list[str] = [
 ]
 
 TRAFFIC_RE = re.compile(r"([\d.]+)\s*([KMB]?)", re.I)
+_REPEATED_CHAR = re.compile(r"(.)\1{4,}")
+_URL_OR_HANDLE = re.compile(r"(?:https?://|www\.|@[\w.-]+)", re.I)
+_SPAM_TERMS = re.compile(
+    r"\b(?:watch\s+live|live\s+stream|free\s+stream|watch\s+online|"
+    r"full\s+match|tv\s+channel|free\s+movie|click\s+here)\b",
+    re.I,
+)
+
+
+def is_low_quality_trend(title: str) -> bool:
+    """Reject obvious SEO/live-stream spam while keeping legitimate event names."""
+    text = title.strip()
+    if not text or len(text) > 180 or _URL_OR_HANDLE.search(text):
+        return True
+    if _REPEATED_CHAR.search(text):
+        return True
+    # RSS spam often repeats the same keyword to manipulate search ranking.
+    words = re.findall(r"[\w'-]+", text.casefold())
+    if len(words) >= 8 and len(set(words)) / len(words) < 0.55:
+        return True
+    if _SPAM_TERMS.search(text) and len(words) >= 7:
+        return True
+    # Ignore titles dominated by mathematical/ornamental Unicode alphabets,
+    # a common way to evade keyword spam filters.
+    letters = [char for char in text if char.isalpha()]
+    ordinary_letters = [
+        char for char in letters
+        if char.isascii() or "LATIN" in unicodedata.name(char, "")
+    ]
+    if letters and len(ordinary_letters) / len(letters) < 0.65:
+        return True
+    suspicious_script_letters = [
+        char for char in letters
+        if "MATHEMATICAL" in unicodedata.name(char, "")
+        or "FULLWIDTH" in unicodedata.name(char, "")
+    ]
+    if len(suspicious_script_letters) >= 4:
+        return True
+    return False
 
 
 def parse_traffic(raw: str | None) -> float:
@@ -122,7 +162,7 @@ class TrendingNowRssStrategy(Strategy):
             if not title_match:
                 continue
             title = unescape(title_match.group(1))
-            if not title:
+            if not title or is_low_quality_trend(title):
                 continue
 
             # Remove thin, uninformative items (1-2 word titles, noise words)
@@ -197,7 +237,7 @@ class GoogleTrendsAdapter(SourceAdapter):
     )
     capabilities = ["search_trend", "breakout", "country_geo", "related_news", "recency"]
     priority = 10
-    collect_interval_seconds = 1800
+    collect_interval_seconds = 600
     strategies = [TrendingNowRssStrategy()]
 
     async def fetch(self, ctx: FetchContext, client: Any) -> FetchResult:

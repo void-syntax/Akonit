@@ -44,8 +44,15 @@ class Settings(BaseSettings):
     reddit_client_id: str | None = None
     reddit_client_secret: str | None = None
     reddit_user_agent: str = "SignalRadar/0.1"
+    x_api_bearer_token: str | None = None
+    x_posts_daily_read_limit: int = 100
     youtube_api_key: str | None = None
     tiktok_api_token: str | None = None
+    tiktok_commercial_client_key: str | None = None
+    tiktok_commercial_client_secret: str | None = None
+    extra_rss_feeds: str = ""
+    extra_rss_feed_limit: int = 10
+    mastodon_instances: str = "mastodon.social,fosstodon.org,infosec.exchange,hachyderm.io"
     instagram_access_token: str | None = None
     meta_app_id: str | None = None
     meta_app_secret: str | None = None
@@ -56,6 +63,9 @@ class Settings(BaseSettings):
     collect_interval_seconds: int = 60
     snapshot_interval_seconds: int = 300
     fetch_timeout_seconds: int = 30
+    # Total budget for one provider including its fallback strategies. A slow
+    # public endpoint must not stall every other source for several minutes.
+    source_fetch_timeout_seconds: int = 20
     source_cooldown_seconds: int = 300
     http_user_agent: str = (
         "SignalRadarBot/0.1 (+https://github.com/signal-radar) "
@@ -63,9 +73,12 @@ class Settings(BaseSettings):
     )
     # Keep the request pool small so a laptop can collect without bursts of
     # sockets, memory and CPU. Individual collectors still run concurrently.
-    http_max_concurrency: int = 4
+    http_max_concurrency: int = 6
     collection_max_events_per_source: int = 25
-    ai_classification_enabled: bool = False
+    ai_classification_enabled: bool = True
+    # Unmeasured first mentions are intentionally capped below 15. Let Laya
+    # triage promising discoveries without increasing its one-per-minute budget.
+    ai_classification_min_strength: float = 8.0
 
     # --- tag-driven collection ---
     # Countries to cover before the user configures any radar, so a fresh
@@ -89,7 +102,7 @@ class Settings(BaseSettings):
     # Hard freshness cutoff, applied at ingestion. Search-driven collectors keep
     # surfacing evergreen hits that look new; this is what stops a five-year-old
     # video from entering the feed as a breaking trend. 0 disables the filter.
-    detect_max_age_hours: int = 72
+    detect_max_age_hours: int = 24
     # Strength margin required before an established signal is demoted, which
     # stops a single noisy window from flipping it back and forth.
     detect_hysteresis: float = 8.0

@@ -54,7 +54,7 @@ class TestCrossCorroborationMatrix:
         result_multi = evaluate_cross_corroboration(sources_multi)
         assert result_multi["family_count"] >= 2
         assert result_multi["is_unicorn"] is True
-        assert result_multi["strength_multiplier"] == 2.0
+        assert result_multi["strength_multiplier"] == 1.15
 
 
 class TestCapitalBackingFactor:
@@ -97,10 +97,39 @@ class TestScoringIntegration:
         assert "substance_factor" in comps
         assert "capital_backing" in comps
         assert "strength_multiplier" in comps
-        assert comps["strength_multiplier"] == 2.0
+        assert comps["strength_multiplier"] == 1.15
+
+    def test_one_source_gets_no_confirmation_bonus_and_ai_does_not_change_score(self):
+        metrics = GrowthMetrics(growth=100.0, velocity=50.0, absolute=1000.0, age_minutes=30.0)
+        single = compute_strength(metrics, cross_source_count=1, sources=["reddit"])
+        multi = compute_strength(metrics, cross_source_count=3, sources=["reddit", "google-news"])
+        with_ai = compute_strength(
+            metrics, cross_source_count=1, sources=["reddit"], ai_priority_score=1.0
+        )
+
+        assert multi > single
+        assert with_ai == single
+        assert strength_components(metrics, cross_source_count=1, ai_priority_score=1.0)["ai_boost"] == 0.0
 
 
 class TestLayaClassifierEnhancements:
+    def test_strong_activity_does_not_override_explicit_noise_judgment(self):
+        from app.ai.laya_classifier import _normalize_priority
+
+        assert _normalize_priority("noise", "actionable", False) == "noise"
+        assert _normalize_priority("critical", "fluff", False) == "noise"
+
+    def test_laya_cache_changes_when_trend_state_changes(self):
+        from app.ai.laya_classifier import _classification_cache_key
+
+        first = _classification_cache_key(
+            "same", "same description", "test", 0, 10, "new"
+        )
+        updated = _classification_cache_key(
+            "same", "same description", "test", 90, 90, "breakout"
+        )
+        assert first != updated
+
     def test_fallback_classification_actionability_and_risk_reward(self):
         classification: LayaClassification = _fallback_classification(
             strength=80.0, growth=50.0, status="BREAKOUT", is_thin=False

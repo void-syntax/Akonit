@@ -106,6 +106,18 @@ LAYA_QUESTIONS = {
 def _get_router():
     """Load Laya router once and cache. Thread-safe via lru_cache."""
     try:
+        # Keep the local model polite on low-core laptops. Laya is processed by
+        # a single background worker, and PyTorch must not fan out CPU threads.
+        try:
+            import torch
+
+            torch.set_num_threads(1)
+            try:
+                torch.set_num_interop_threads(1)
+            except RuntimeError:
+                pass
+        except ImportError:
+            pass
         from laya import Router  # type: ignore[import-untyped]
         logger.info("Loading Laya AI router...")
         # Keep only one checkpoint resident; Laya stays lazily loaded on first
@@ -131,6 +143,7 @@ def _classify_sync(
 ) -> LayaClassification:
     """Run Laya classification synchronously (called from thread pool)."""
     import time
+    from app.core.config import settings
     from app.core.metrics import laya_classification_duration_seconds
 
     start_time = time.time()
@@ -139,9 +152,14 @@ def _classify_sync(
         words = text_combined.split()
         is_thin = len(words) < 6
 
+        # Thin titles are already classifiable as noise; avoid loading the local
+        # model merely to return that deterministic fallback.
+        if is_thin:
+            return _fallback_classification(strength, growth, status, is_thin=True)
+
         router = _get_router()
-        if router is None or is_thin:
-            return _fallback_classification(strength, growth, status, is_thin)
+        if router is None:
+            return _fallback_classification(strength, growth, status)
 
         state = {
             "title": title,
@@ -168,29 +186,36 @@ def _classify_sync(
             actionability_pot_ans = answers.get("actionability_potential", {})
             risk_reward_ans = answers.get("risk_reward_ratio", {})
 
-            priority = priority_ans.get("choice", "watch")
+            priority_choice = priority_ans.get("choice", "watch")
             priority_probs = priority_ans.get("probs", {})
-            priority_score = _finite_float(priority_probs.get(priority), 0.5, 0.0, 1.0)
-
+            priority_score = _finite_float(
+                priority_probs.get(priority_choice), 0.5, 0.0, 1.0
+            )
             actionability_choice = action_ans.get("choice", "actionable")
-            if actionability_choice == "fluff" or is_thin:
-                priority = "noise"
+            priority = _normalize_priority(
+                priority_choice, actionability_choice, is_thin
+            )
+            if priority == "noise" and (
+                actionability_choice == "fluff" or is_thin
+            ):
                 priority_score = 0.85
 
-            # Smart override for high breakout or high strength signals with substance
-            if (status == "breakout" or strength >= 70) and not is_thin:
-                if priority == "noise":
-                    priority = "critical"
-                    priority_score = max(priority_score, 0.85)
-            elif (status == "rising" or strength >= 45) and not is_thin:
-                if priority == "noise":
-                    priority = "watch"
-                    priority_score = max(priority_score, 0.65)
+            # Do not let a high activity score overrule the classifier's
+            # explicit noise judgment. Activity and content quality are
+            # separate evidence dimensions.
 
             category = category_ans.get("choice", "other")
             should_notify = _finite_float(notify_ans.get("noul"), 0.3, 0.0, 1.0)
             if actionability_choice == "fluff":
                 should_notify = min(should_notify, 0.1)
+            priority, priority_score, should_notify = _gate_critical_priority(
+                priority,
+                priority_score,
+                should_notify,
+                strength=strength,
+                status=status,
+                minimum_strength=settings.detect_rising_strength,
+            )
 
             noise_probability = _finite_float(noise_ans.get("noul"), 0.3, 0.0, 1.0)
             if actionability_choice == "fluff" or is_thin:
@@ -312,6 +337,33 @@ def _finite_float(value: object, default: float, minimum: float, maximum: float)
     return min(max(parsed, minimum), maximum)
 
 
+def _normalize_priority(
+    priority: object, actionability_choice: object, is_thin: bool
+) -> str:
+    """Keep explicit noise and thin-content judgments from being promoted."""
+    if is_thin or str(actionability_choice).lower() == "fluff":
+        return "noise"
+    normalized = str(priority).lower()
+    return normalized if normalized in {"critical", "watch", "noise"} else "watch"
+
+
+def _gate_critical_priority(
+    priority: str,
+    priority_score: float,
+    should_notify: float,
+    *,
+    strength: float,
+    status: str,
+    minimum_strength: float,
+) -> tuple[str, float, float]:
+    """Require engine-measured momentum before showing an AI critical label."""
+    if priority != "critical":
+        return priority, priority_score, should_notify
+    if status.upper() in {"RISING", "BREAKOUT"} and strength >= minimum_strength:
+        return priority, priority_score, should_notify
+    return "watch", min(priority_score, 0.65), min(should_notify, 0.3)
+
+
 async def classify_signal(
     title: str,
     description: str,
@@ -323,18 +375,18 @@ async def classify_signal(
     """Async wrapper with cache-aside pattern for Laya classifications."""
     from app.core.cache import cache_aside
 
-    # Cache only the text classification. Growth/strength/status change on
-    # every collection pass and must never be frozen into a one-hour result.
-    text_key = hashlib.sha256(
-        f"{title[:500]}\0{description[:500]}\0{source_id}".encode("utf-8")
-    ).hexdigest()
+    safe_growth = float(growth or 0.0)
+    safe_strength = float(strength or 0.0)
+    safe_status = str(status or "new")
+    # Laya sees trend state as input, so include it in the cache key. Otherwise
+    # the first classification would be reused after the signal has changed.
+    text_key = _classification_cache_key(
+        title, description, source_id, safe_growth, safe_strength, safe_status
+    )
     cache_key = f"laya:classify:v2:{text_key}"
 
     async def _fetch():
         loop = asyncio.get_running_loop()
-        safe_growth = float(growth or 0.0)
-        safe_strength = float(strength or 0.0)
-        safe_status = str(status or "new")
         result = await loop.run_in_executor(
             _executor,
             _classify_sync,
@@ -347,7 +399,24 @@ async def classify_signal(
         )
         return result
 
-    return await cache_aside(cache_key, _fetch, ttl_seconds=24 * 3600)
+    return await cache_aside(cache_key, _fetch, ttl_seconds=15 * 60)
+
+
+def _classification_cache_key(
+    title: str,
+    description: str,
+    source_id: str,
+    growth: float,
+    strength: float,
+    status: str,
+) -> str:
+    """Key results by every input that can change a routed answer."""
+    return hashlib.sha256(
+        (
+            f"{title[:500]}\0{description[:500]}\0{source_id}\0"
+            f"{growth:.1f}\0{strength:.1f}\0{status.lower()}"
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 async def warm_up() -> bool:

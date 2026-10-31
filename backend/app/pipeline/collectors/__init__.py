@@ -4,8 +4,9 @@ Adding a new collector is a single new file plus one import line below.
 """
 
 from app.pipeline.collectors import ai_tech  # noqa: F401
+from app.pipeline.collectors import custom_rss  # noqa: F401
 from app.pipeline.collectors.adapters import rss_news  # noqa: F401
-from app.pipeline.collectors.adapters import reddit  # noqa: F401
+from app.pipeline.collectors.adapters import bluesky_jetstream  # noqa: F401
 from app.pipeline.collectors.adapters import arxiv  # noqa: F401
 from app.pipeline.collectors.adapters import sec_edgar  # noqa: F401
 from app.pipeline.collectors.adapters import uspto_patents  # noqa: F401
@@ -16,6 +17,7 @@ from app.pipeline.collectors.adapters import gh_archive  # noqa: F401
 from app.pipeline.collectors import devto  # noqa: F401
 from app.pipeline.collectors import google_news_trends  # noqa: F401
 from app.pipeline.collectors import google_trends  # noqa: F401
+from app.pipeline.collectors import gdelt_news  # noqa: F401
 from app.pipeline.collectors import hackernews  # noqa: F401
 from app.pipeline.collectors import instagram  # noqa: F401
 from app.pipeline.collectors import lobsters  # noqa: F401
@@ -24,7 +26,9 @@ from app.pipeline.collectors import producthunt  # noqa: F401
 from app.pipeline.collectors import reddit  # noqa: F401
 from app.pipeline.collectors import stackoverflow  # noqa: F401
 from app.pipeline.collectors import tiktok  # noqa: F401
+from app.pipeline.collectors import tiktok_commercial  # noqa: F401
 from app.pipeline.collectors import x_trends  # noqa: F401
+from app.pipeline.collectors import x_posts  # noqa: F401
 from app.pipeline.collectors import youtube  # noqa: F401
 from app.pipeline.collectors import mastodon_trends  # noqa: F401
 from app.pipeline.collectors import github_trending  # noqa: F401

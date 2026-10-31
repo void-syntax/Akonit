@@ -13,9 +13,14 @@ from app.pipeline.detection.metrics import (
     compute_growth_acceleration,
     include_current_observation,
     safe_pct,
+    mention_burst_score,
 )
-from app.pipeline.detection.scoring import compute_strength
-from app.services.pipeline_service import _is_stale
+from app.pipeline.detection.scoring import absolute_score, compute_strength
+from app.services.pipeline_service import (
+    _effective_event_time,
+    _is_stale,
+    _snapshot_is_due,
+)
 
 NOW = datetime.now(UTC)
 
@@ -42,6 +47,23 @@ class TestMetrics:
         assert not activity_metrics_comparable("source_a", "unknown", "source_b", "unknown")
         assert activity_metrics_comparable("reddit", "unknown", "reddit", "unknown")
         assert not activity_metrics_comparable("reddit", "score", "reddit", "comments")
+
+    def test_google_news_counts_require_matching_search_context(self):
+        context = {
+            "query": "AI agent",
+            "window": "when:1h",
+            "hl": "en-US",
+            "gl": "US",
+        }
+        assert activity_metrics_comparable(
+            "google_news_trends", "query_mentions", "google_news_trends",
+            "gnews_a1b2", context, context,
+        )
+        other_query = {**context, "query": "viral trend"}
+        assert not activity_metrics_comparable(
+            "google_news_trends", "query_mentions", "google_news_trends",
+            "query_mentions", context, other_query,
+        )
 
     def test_growth_without_a_baseline_is_zero(self):
         """A first sighting has nothing to compare against.
@@ -143,6 +165,37 @@ class TestMetrics:
         metrics = compute_growth_acceleration(points([10, 20, 40, 80]), now=NOW)
         assert metrics.persistence == 3
 
+    def test_mention_burst_requires_history_and_rises_above_own_baseline(self):
+        assert mention_burst_score(20, []) == 0.0
+        assert mention_burst_score(10, [10, 10, 10, 10]) == 0.0
+        assert 0.0 < mention_burst_score(12, [4, 4, 4, 4]) < 1.0
+        assert mention_burst_score(30, [4, 4, 4, 4]) == 1.0
+
+    def test_mention_only_signal_uses_burst_evidence_instead_of_zero_absolute(self):
+        metrics = compute_growth_acceleration(points([0]), now=NOW)
+        assert absolute_score(metrics) == 0.0
+        metrics.burst_score = 0.75
+        assert absolute_score(metrics) == 0.75
+        assert compute_strength(
+            metrics,
+            cross_source_count=2,
+            sources=["reddit", "mastodon"],
+        ) > compute_strength(
+            compute_growth_acceleration(points([0]), now=NOW),
+            cross_source_count=2,
+            sources=["reddit", "mastodon"],
+        )
+
+    def test_unmeasured_mention_can_create_a_density_history_snapshot(self):
+        assert _snapshot_is_due(
+            record_snapshot=True,
+            record_observation=False,
+            density_count=1,
+            history=[],
+            captured_at=NOW,
+            interval_seconds=60,
+        )
+
 
 class TestFreshnessFilter:
     """Ingestion must reject evergreen items that look new.
@@ -162,6 +215,11 @@ class TestFreshnessFilter:
     def test_boundary_is_configurable(self, monkeypatch) -> None:
         monkeypatch.setattr(settings, "detect_max_age_hours", 0)
         assert _is_stale(datetime(1990, 1, 1, tzinfo=UTC)) is False
+
+    def test_future_publication_time_is_clamped_to_observation_time(self) -> None:
+        observed = datetime(2026, 10, 28, 20, 15, tzinfo=UTC)
+        published = datetime(2026, 10, 28, 21, 24, tzinfo=UTC)
+        assert _effective_event_time(published, observed) == observed
 
 
 class TestTagFiltering:
@@ -197,6 +255,7 @@ class TestTagFiltering:
                     ("s2", ["ai-agents"]),
                     ("s3", ["tiktok-memes"]),
                     ("s4", ["beauty"]),
+                    ("s0", ["misc"]),
                 ]:
                     s.add(
                         Signal(
@@ -212,8 +271,12 @@ class TestTagFiltering:
                             last_seen_at=now,
                             current_activity=10,
                             previous_activity=0,
-                            status=SignalStatus.NEW,
-                            strength=50.0,
+                            status=(
+                                SignalStatus.FADING
+                                if sid == "s0"
+                                else SignalStatus.NEW
+                            ),
+                            strength=99.0 if sid == "s0" else 50.0,
                             keywords=kw,
                         )
                     )
@@ -225,6 +288,7 @@ class TestTagFiltering:
         import asyncio
 
         setup, session, engine = self._client_session(tmp_path, monkeypatch)
+
         asyncio.run(setup())
 
         try:
@@ -260,6 +324,41 @@ class TestTagFiltering:
 
             total, items = asyncio.run(query(["nope"]))
             assert total == len(items) == 0
+        finally:
+            asyncio.run(engine.dispose())
+
+    def test_high_historical_fading_signal_sorts_after_live_results(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        import asyncio
+
+        setup, session, engine = self._client_session(tmp_path, monkeypatch)
+        asyncio.run(setup())
+
+        try:
+            from app.api.v1.signals import list_signals
+
+            async def query():
+                async with session() as s:
+                    return await list_signals(
+                        session=s,
+                        user=None,
+                        status_filter=None,
+                        tab="all",
+                        country=None,
+                        source=None,
+                        radar_id=None,
+                        tag=None,
+                        keyword=None,
+                        min_strength=None,
+                        max_age_minutes=None,
+                        limit=30,
+                        offset=0,
+                    )
+
+            page = asyncio.run(query())
+            assert page.items[0].title != "s0"
+            assert page.items[-1].title == "s0"
         finally:
             asyncio.run(engine.dispose())
 
@@ -367,6 +466,14 @@ class TestScoring:
 
 
 class TestLifecycle:
+    def test_unmeasured_repeated_event_is_not_called_rising(self):
+        # A content-only event (for example, a live social post) has no
+        # comparable activity count. Reprocessing it must not fabricate a
+        # rising trend merely because a second zero-value snapshot exists.
+        metrics = compute_growth_acceleration(points([0, 0]), now=NOW)
+        status, _ = classify(metrics, previous_status=SignalStatus.NEW)
+        assert status == SignalStatus.NEW
+
     def test_status_transitions_are_valid(self):
         for previous in SignalStatus:
             for values in ([1], [1, 2], [1, 10, 100], [100, 50, 10]):
@@ -382,6 +489,16 @@ class TestLifecycle:
         status, strength = classify(metrics)
         if strength >= settings.detect_breakout_strength:
             assert status == SignalStatus.BREAKOUT
+
+    def test_flat_activity_is_not_kept_in_rising_status(self):
+        metrics = compute_growth_acceleration(
+            points([10_000_000, 10_000_000, 10_000_000]), now=NOW
+        )
+        status, _ = classify(
+            metrics, previous_status=SignalStatus.RISING, cross_source_count=10
+        )
+        assert metrics.velocity == 0.0
+        assert status == SignalStatus.FADING
 
     def test_fading_is_not_actionable(self):
         assert not is_actionable(SignalStatus.FADING)

@@ -98,7 +98,9 @@ def simhash(text: str, bits: int = 64) -> int:
 
 
 def hamming(a: int, b: int) -> int:
-    return bin(a ^ b).count("1")
+    # int.bit_count executes in optimized native code and avoids allocating a
+    # binary string for every pairwise similarity check in the dedup hot path.
+    return (a ^ b).bit_count()
 
 
 def similarity(a: int, b: int, bits: int = 64) -> float:

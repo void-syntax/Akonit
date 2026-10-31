@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import AsyncAdaptedQueuePool, StaticPool
 
 from app.core.config import settings
 
@@ -34,22 +34,46 @@ def _get_database_url() -> str:
 def _build_engine(url: str) -> AsyncEngine:
     echo = getattr(settings, "api_debug", True) and getattr(settings, "db_echo", False)
     if url.startswith("sqlite"):
+        # A single StaticPool connection is safe for in-memory tests, but
+        # corrupts concurrent transactions in the live worker: independent
+        # scheduler jobs can invalidate one another's SAVEPOINTs. File-backed
+        # SQLite gets a small async pool; WAL + busy_timeout serialize writes
+        # without sharing transaction state, while limiting laptop resources.
+        pool_options = (
+            {"poolclass": StaticPool}
+            if url.endswith(":memory:") or url.endswith("sqlite+aiosqlite://")
+            else {
+                "poolclass": AsyncAdaptedQueuePool,
+                "pool_size": 3,
+                "max_overflow": 2,
+            }
+        )
         engine = create_async_engine(
             url,
             echo=echo,
             future=True,
             query_cache_size=1200,
-            poolclass=StaticPool,
             connect_args={
                 "check_same_thread": False,
                 "timeout": 30,
             },
+            **pool_options,
         )
         from sqlalchemy import event
         @event.listens_for(engine.sync_engine, "connect")
         def _set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
+            # SQLite does not enforce declared FK actions unless explicitly
+            # enabled per connection; retention otherwise leaves orphaned
+            # snapshots and radar matches behind.
+            cursor.execute("PRAGMA foreign_keys=ON")
+            # WAL is persistent for the database file. Avoid trying to switch
+            # journal mode on every pooled connection while another task has a
+            # transaction open.
+            cursor.execute("PRAGMA journal_mode")
+            journal_mode = cursor.fetchone()[0].lower()
+            if journal_mode != "wal":
+                cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
             cursor.execute("PRAGMA busy_timeout=30000")
             cursor.execute("PRAGMA cache_size=-4000")  # 4MB cache limit to keep RAM consumption minimal
@@ -99,7 +123,6 @@ async def check_migrations() -> None:
     else:
         # For Postgres, check/apply Alembic migrations if needed
         try:
-            from alembic import command
             from alembic.config import Config
             from pathlib import Path
             backend_root = Path(__file__).resolve().parent.parent.parent

@@ -77,6 +77,7 @@ class Signal(Base):
     """0–1 probability that this is noise/spam."""
     ai_trending_score: Mapped[float] = mapped_column(Float, default=0.0)
     ai_classified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ai_model_used: Mapped[str | None] = mapped_column(String(160))
     topics: Mapped[list] = mapped_column(JSON, default=list)
     keywords: Mapped[list] = mapped_column(JSON, default=list)
 

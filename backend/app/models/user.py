@@ -13,7 +13,6 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -65,6 +64,8 @@ class UserProfile(Base):
     default_countries: Mapped[list] = mapped_column(JSON, default=list)
     default_sources: Mapped[list] = mapped_column(JSON, default=list)
     default_tags: Mapped[list] = mapped_column(JSON, default=list)
+    collector_source_weights: Mapped[dict] = mapped_column(JSON, default=dict)
+    collector_keywords: Mapped[list] = mapped_column(JSON, default=list)
     quiet_hours: Mapped[dict | None] = mapped_column(JSON, default=None)
     theme: Mapped[str] = mapped_column(String(16), default="dark")
     created_at: Mapped[datetime] = mapped_column(

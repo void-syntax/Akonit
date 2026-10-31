@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +11,7 @@ from app.models import Signal
 from app.models.enums import SignalStatus
 from app.notifications.dispatcher import flush_deliveries, notify_matches
 from app.services.pipeline_service import (
+    classify_pending_signal_task,
     refresh_signal_metrics,
     run_collection_cycle,
 )
@@ -22,15 +21,35 @@ from app.services.retention import run_cleanup
 logger = get_logger("worker.tasks")
 
 
-async def run_collection_task(session: AsyncSession) -> dict:
+async def run_collection_task(session: AsyncSession, *, force: bool = False) -> dict:
     """Collect from every source, detect signals, broadcast live updates."""
     from app.api.v1.stream import broadcast_signal
+
+    from app.models import UserProfile
+
+    profile = (
+        await session.execute(select(UserProfile).limit(1))
+    ).scalar_one_or_none()
+    weights = profile.collector_source_weights if profile else {}
+    focus_terms = profile.collector_keywords if profile else []
+    keywords = focus_terms + await collection_keywords(session)
+    unique_keywords: list[str] = []
+    seen_keywords: set[str] = set()
+    for term in keywords:
+        clean = str(term).strip()
+        normalized = clean.casefold()
+        if clean and normalized not in seen_keywords:
+            seen_keywords.add(normalized)
+            unique_keywords.append(clean)
 
     stats = await run_collection_cycle(
         session,
         countries=await active_countries(session),
-        keywords=await collection_keywords(session),
+        keywords=unique_keywords[: settings.max_collect_keywords],
         limit_per_source=settings.collection_max_events_per_source,
+        source_weights=weights or None,
+        required_keywords=focus_terms or None,
+        force=force,
     )
 
     # push the freshest signals to the live feed
@@ -54,6 +73,7 @@ async def run_collection_task(session: AsyncSession) -> dict:
         "fetched": stats.fetched,
         "signals_created": stats.signals_created,
         "signals_updated": stats.signals_updated,
+        "sources_due": stats.sources_due,
         "sources_ok": stats.sources_ok,
         "sources_failed": stats.sources_failed,
     }
@@ -62,9 +82,7 @@ async def run_collection_task(session: AsyncSession) -> dict:
 async def run_matching_task(session: AsyncSession) -> dict:
     """Match recent signals against every radar, then queue notifications."""
     outcomes = await match_batch(session, lookback_minutes=180)
-    queued = await notify_matches(
-        session, signal_ids=[o.signal_id for o in outcomes]
-    )
+    queued = await notify_matches(session, signal_ids=[o.signal_id for o in outcomes])
     return {"matched": len(outcomes), "notifications_queued": queued}
 
 
@@ -88,6 +106,11 @@ async def cleanup_task(session: AsyncSession) -> dict:
     return await run_cleanup(session)
 
 
+async def run_laya_task(session: AsyncSession) -> bool:
+    """Run at most one low-priority local classification per scheduler tick."""
+    return await classify_pending_signal_task(session)
+
+
 async def active_countries(session: AsyncSession) -> list[str]:
     """Countries covered by at least one active radar.
 
@@ -97,10 +120,14 @@ async def active_countries(session: AsyncSession) -> list[str]:
     from app.models import Radar
 
     rows = (
-        await session.execute(
-            select(Radar.countries).where(Radar.is_active.is_(True))
+        (
+            await session.execute(
+                select(Radar.countries).where(Radar.is_active.is_(True))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     codes: set[str] = set()
     for row in rows:
         if isinstance(row, list):
@@ -139,18 +166,12 @@ async def collection_keywords(session: AsyncSession) -> list[str]:
 
     terms: list[str] = []
 
-    profile = (
-        await session.execute(select(UserProfile).limit(1))
-    ).scalar_one_or_none()
+    profile = (await session.execute(select(UserProfile).limit(1))).scalar_one_or_none()
     if profile and profile.default_tags:
         terms.extend(str(t) for t in profile.default_tags if t)
 
     custom = (
-        (
-            await session.execute(
-                select(CustomTag).where(CustomTag.is_active.is_(True))
-            )
-        )
+        (await session.execute(select(CustomTag).where(CustomTag.is_active.is_(True))))
         .scalars()
         .all()
     )
@@ -161,11 +182,7 @@ async def collection_keywords(session: AsyncSession) -> list[str]:
         terms.extend(str(h).lstrip("#") for h in (tag.hashtags or []) if h)
 
     radars = (
-        (
-            await session.execute(
-                select(Radar).where(Radar.is_active.is_(True))
-            )
-        )
+        (await session.execute(select(Radar).where(Radar.is_active.is_(True))))
         .scalars()
         .all()
     )

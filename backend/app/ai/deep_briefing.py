@@ -57,7 +57,7 @@ async def synthesize_deep_briefing(session: AsyncSession, signal_id: str) -> Int
     # Synthesize multi-source data
     cross_urls = signal.cross_source_urls or [signal.source_url]
     keywords = signal.keywords or []
-    category = signal.ai_category or signal.category or "tech"
+    category = signal.ai_category or signal.category or "unspecified"
 
     # The current implementation is a transparent template, not an LLM.
     core_thesis = (
@@ -79,10 +79,18 @@ async def synthesize_deep_briefing(session: AsyncSession, signal_id: str) -> Int
         "pricing, competition, licensing, and operating costs before estimating a business case."
     )
 
+    if signal.ai_classified_at is None:
+        noise_assessment = "Laya did not classify this signal; noise risk is unknown."
+    else:
+        noise_assessment = (
+            f"Noise estimate: {signal.ai_noise_probability * 100:.1f}%; "
+            "this is an uncalibrated model score, not a probability of failure."
+        )
+
     risk_analysis = (
         f"- **Evidence gaps**: Check primary sources and verify publication time and source independence.\n"
         f"- **Commercial uncertainty**: Trend activity alone does not establish demand, revenue, or investability.\n"
-        f"- **Noise indicator**: classifier estimate {signal.ai_noise_probability * 100:.1f}%; not a calibrated probability."
+        f"- **Noise indicator**: {noise_assessment}"
     )
 
     briefing = IntelligenceBriefing(

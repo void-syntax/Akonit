@@ -119,6 +119,9 @@ async def test_idempotency_dedup(db_session: AsyncSession):
     stored_event = (await db_session.execute(SourceEvent.__table__.select())).first()
     assert stored_event is not None
     assert stored_event.raw_payload["observed_at"] == now.isoformat()
+    stored_signal = (await db_session.execute(Signal.__table__.select())).first()
+    assert stored_signal is not None
+    assert stored_signal.source_metadata["observed_at"] == now.isoformat()
 
     event2 = RawEvent(
         source_id="github",

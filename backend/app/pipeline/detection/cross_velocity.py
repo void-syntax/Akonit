@@ -12,15 +12,27 @@ COLLECTOR_FAMILIES = {
     "huggingface": "code",
     "gitlab": "code",
     "reddit": "social",
+    "bluesky": "social",
+    "mastodon": "social",
     "twitter": "social",
     "x": "social",
+    "instagram": "social",
+    "tiktok": "social",
+    "youtube": "social",
     "polymarket": "prediction",
     "sec": "finance",
     "news": "media",
     "rss": "media",
+    "gdelt": "media",
+    "google_news": "media",
+    "rss_news": "media",
+    "google_trends": "search_trends",
     "arxiv": "research",
     "hackernews": "social",
     "producthunt": "product",
+    "stackoverflow": "developer_community",
+    "lobsters": "developer_community",
+    "devto": "developer_community",
     "discord": "social",
     "telegram": "social",
 }
@@ -109,13 +121,14 @@ def get_collector_family(source_id: str) -> str:
 def evaluate_cross_corroboration(sources: Sequence[str]) -> dict[str, Any]:
     """Evaluate multi-source cross-corroboration across distinct collector families.
     
-    If detected across 2+ distinct collector families, trigger UNICORN_SIGNAL with 2.0x strength multiplier.
+    Two independent families are useful corroboration, not proof. Apply a
+    modest multiplier so reposts or broad low-quality sources cannot dominate.
     """
     families = {get_collector_family(src) for src in sources if src}
     distinct_family_count = len(families)
     
     is_unicorn = distinct_family_count >= 2
-    multiplier = 2.0 if is_unicorn else 1.0
+    multiplier = 1.15 if is_unicorn else 1.0
     
     return {
         "distinct_families": list(families),

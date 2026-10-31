@@ -75,7 +75,10 @@ class SourceEvent(Base):
     """Raw collector output, stored before normalization for auditability."""
 
     __tablename__ = "source_events"
-    __table_args__ = (Index("ix_source_events_src_time", "source_id", "fetched_at"),)
+    __table_args__ = (
+        Index("ix_source_events_src_time", "source_id", "fetched_at"),
+        Index("ix_source_events_observed_cluster", "observed_at", "cluster_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     source_id: Mapped[str] = mapped_column(

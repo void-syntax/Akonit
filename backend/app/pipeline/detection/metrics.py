@@ -7,8 +7,10 @@ metric here is relative rather than absolute.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Mapping, Any
 
 MIN_ACTIVITY = 1.0
 
@@ -38,8 +40,28 @@ def activity_metrics_comparable(
     primary_metric: str | None,
     incoming_source: str,
     incoming_metric: str | None,
+    primary_metadata: Mapping[str, Any] | None = None,
+    incoming_metadata: Mapping[str, Any] | None = None,
 ) -> bool:
     """Whether two activity values share a meaningful unit for trend math."""
+    if primary_source == incoming_source == "google_news_trends":
+        # Google News result counts are only comparable for the same query,
+        # locale and recency window. `query_mentions` was the legacy metric
+        # name, so matching metadata safely migrates those records too.
+        context_keys = ("query", "window", "hl", "gl")
+        primary_context = primary_metadata or {}
+        incoming_context = incoming_metadata or {}
+        if not all(
+            primary_context.get(key) and incoming_context.get(key)
+            for key in context_keys
+        ):
+            return False
+        return all(
+            str(primary_context[key]).strip().casefold()
+            == str(incoming_context[key]).strip().casefold()
+            for key in context_keys
+        )
+
     if primary_metric != incoming_metric:
         return False
     if primary_metric in {None, "", "unknown"}:
@@ -85,11 +107,70 @@ class GrowthMetrics:
     the signal, and it is tracked separately from ordinary growth.
     """
     points: list[ActivityPoint] = field(default_factory=list)
+    burst_score: float = 0.0
+    """Bounded 0..1 surprise of recent cluster mentions vs its own baseline."""
 
     @property
     def has_acceleration(self) -> bool:
         return self.acceleration == self.acceleration  # not NaN
 
+
+def mention_burst_score(current: int, history: list[int]) -> float:
+    """Estimate an unusual rise in recent mentions with a robust local baseline.
+
+    Uses median + MAD to avoid letting one previous spike become the baseline,
+    with a Poisson-like sqrt floor for sparse streams. It is constant-time at
+    the signal scale (history is capped by the snapshot query) and dependency-free.
+    """
+    if current < 3 or not history:
+        return 0.0
+    recent = sorted(max(int(value), 0) for value in history[-8:])
+    middle = len(recent) // 2
+    baseline = (
+        float(recent[middle])
+        if len(recent) % 2
+        else (recent[middle - 1] + recent[middle]) / 2.0
+    )
+    deviations = sorted(abs(value - baseline) for value in recent)
+    mad = deviations[len(deviations) // 2]
+    scale = max(1.4826 * mad, (baseline + 1.0) ** 0.5)
+    surprise = (current - baseline) / scale
+    return min(max((surprise - 1.5) / 4.0, 0.0), 1.0)
+
+
+def poisson_cusum_burst_score(
+    interval_counts: list[int],
+    *,
+    baseline_bins: int = 6,
+    target_rate_ratio: float = 2.0,
+    threshold: float = 5.0,
+    min_recent_events: int = 2,
+) -> float:
+    """Bounded one-sided Poisson CUSUM over equal-duration count bins.
+
+    The first half estimates the background rate with a Gamma(0.5, 1) prior;
+    the second half accumulates log-likelihood evidence for a rate increase.
+    This is an activity surprise score, not a probability or calibrated p-value.
+    """
+    if baseline_bins < 1 or len(interval_counts) < baseline_bins + 1:
+        return 0.0
+    recent_bins = interval_counts[-baseline_bins:]
+    if sum(max(int(value), 0) for value in recent_bins) < min_recent_events:
+        return 0.0
+
+    baseline = interval_counts[:-baseline_bins]
+    baseline_total = sum(max(int(value), 0) for value in baseline)
+    baseline_rate = (baseline_total + 0.5) / (len(baseline) + 1.0)
+    ratio = max(float(target_rate_ratio), 1.0 + 1e-9)
+    change_cost = baseline_rate * (ratio - 1.0)
+    log_ratio = math.log(ratio)
+
+    statistic = 0.0
+    for observed in recent_bins:
+        likelihood_increment = max(int(observed), 0) * log_ratio - change_cost
+        statistic = max(0.0, statistic + likelihood_increment)
+
+    return min(statistic / max(float(threshold), 1e-9), 1.0)
 
 def safe_pct(current: float, previous: float) -> float:
     """Percentage growth between two real measurements.
