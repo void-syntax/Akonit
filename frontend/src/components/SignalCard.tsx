@@ -159,20 +159,20 @@ export function SignalCard({ signal, onChange, onDelete }: Props) {
         )}
 
         {isCritical && (
-          <span className="ai-badge ai-badge--critical" title={`AI Confidence: ${Math.round((signal.ai_priority_score || 0) * 100)}%`}>
-            ⚡ Critical ({Math.round((signal.ai_priority_score || 0) * 100)}%)
+          <span className="ai-badge ai-badge--critical" title={`Classifier ranking score, not a probability: ${Math.round((signal.ai_priority_score || 0) * 100)}`}>
+            ⚡ Critical · {Math.round((signal.ai_priority_score || 0) * 100)}
           </span>
         )}
 
         {signal.ai_priority === "watch" && (
-          <span className="ai-badge ai-badge--watch" title={`AI Confidence: ${Math.round((signal.ai_priority_score || 0) * 100)}%`}>
-            👁 Watch ({Math.round((signal.ai_priority_score || 0) * 100)}%)
+          <span className="ai-badge ai-badge--watch" title={`Classifier ranking score, not a probability: ${Math.round((signal.ai_priority_score || 0) * 100)}`}>
+            👁 Watch · {Math.round((signal.ai_priority_score || 0) * 100)}
           </span>
         )}
 
         {signal.ai_priority === "noise" && (
-          <span className="ai-badge ai-badge--noise" title={`Noise Probability: ${Math.round((signal.ai_noise_probability || 0) * 100)}%`}>
-            Noise ({Math.round((signal.ai_noise_probability || 0) * 100)}%)
+          <span className="ai-badge ai-badge--noise" title={`Uncalibrated noise score: ${Math.round((signal.ai_noise_probability || 0) * 100)}`}>
+            Noise · {Math.round((signal.ai_noise_probability || 0) * 100)}
           </span>
         )}
 

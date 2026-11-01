@@ -31,7 +31,7 @@ JETSTREAM_HOSTS = (
     "jetstream1.us-west.bsky.network",
     "jetstream2.us-east.bsky.network",
 )
-MAX_WINDOW_SECONDS = 12
+MAX_WINDOW_SECONDS = 5
 MAX_CONNECT_SECONDS = 4.0
 MAX_EVENTS = 10
 SEARCH_URL = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"

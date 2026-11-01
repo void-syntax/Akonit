@@ -9,6 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,13 +31,22 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://signal:signal@localhost:5432/signal_radar"
     redis_url: str | None = None
     db_echo: bool = False
+    otel_console_exporter_enabled: bool = False
 
     # --- auth ---
-    # There is no login: the app runs on the operator's own machine, so the API
-    # resolves one local account and every request uses it. `auth_disabled=false`
-    # turns token auth back on for anyone who puts this behind a shared host.
+    # This build is a single-user local application. Hosted authentication and
+    # account provisioning are not implemented, so fail fast if someone tries
+    # to turn on the old, nonfunctional JWT switch.
     auth_disabled: bool = True
     local_user_email: str = "local@signalradar"
+
+    @model_validator(mode="after")
+    def require_local_single_user_mode(self) -> "Settings":
+        if self.auth_disabled is not True:
+            raise ValueError(
+                "Shared-host authentication is not implemented; keep AUTH_DISABLED=true"
+            )
+        return self
 
     # --- sources / collectors ---
     github_token: str | None = None
@@ -68,7 +78,7 @@ class Settings(BaseSettings):
     source_fetch_timeout_seconds: int = 20
     source_cooldown_seconds: int = 300
     http_user_agent: str = (
-        "SignalRadarBot/0.1 (+https://github.com/signal-radar) "
+        "SignalRadarBot/0.1 (+https://github.com/void-syntax/Akonit) "
         "Mozilla/5.0 (compatible; SignalRadar/0.1)"
     )
     # Keep the request pool small so a laptop can collect without bursts of
@@ -76,6 +86,8 @@ class Settings(BaseSettings):
     http_max_concurrency: int = 6
     collection_max_events_per_source: int = 25
     ai_classification_enabled: bool = True
+    ai_classification_interval_seconds: int = 15
+    local_llm_threads: int = 1
     # Unmeasured first mentions are intentionally capped below 15. Let Laya
     # triage promising discoveries without increasing its one-per-minute budget.
     ai_classification_min_strength: float = 8.0

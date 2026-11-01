@@ -284,6 +284,13 @@ async def run_collection_cycle(
             for completed in asyncio.as_completed(tasks):
                 adapter, res, fetch_elapsed = await completed
                 fetch_latencies.append(fetch_elapsed)
+                if fetch_elapsed >= 3.0:
+                    logger.info(
+                        "collector timing: %s fetch %.2fs (%s)",
+                        adapter.source_id,
+                        fetch_elapsed,
+                        "ok" if not isinstance(res, Exception) and res.ok else "failed",
+                    )
                 if first_result_latency is None:
                     first_result_latency = time.monotonic() - cycle_started
 
@@ -1020,6 +1027,7 @@ async def _recompute(
         # Laya may triage a signal, but it cannot boost the metric it is judging.
         ai_priority_score=0.0,
         sources=signal.cross_source_urls or [],
+        text_content=f"{signal.title}\n{signal.description or ''}",
     )
 
     signal.growth = round(metrics.growth, 2)
@@ -1076,6 +1084,7 @@ async def _recompute(
                     window_minutes=WINDOW_MINUTES,
                     ai_priority_score=0.0,
                     sources=signal.cross_source_urls or [],
+                    text_content=f"{signal.title}\n{signal.description or ''}",
                 )
             },
         )
@@ -1153,7 +1162,11 @@ async def classify_pending_signal_task(session: AsyncSession) -> bool:
                 Signal.strength >= settings.ai_classification_min_strength,
                 Signal.status != SignalStatus.FADING,
             )
-            .order_by(Signal.strength.desc(), Signal.first_seen_at.desc())
+            .order_by(
+                Signal.strength.desc(),
+                Signal.cross_source_count.desc(),
+                Signal.first_seen_at.desc(),
+            )
             .limit(1)
         )
     ).scalars().first()
@@ -1180,6 +1193,11 @@ async def classify_pending_signal_task(session: AsyncSession) -> bool:
         signal.ai_classified_at = datetime.now(UTC)
         await _recompute(session, signal, record_snapshot=False, record_observation=False)
         await session.commit()
+        logger.info(
+            "background classifier finished signal %s with %s",
+            signal.id,
+            result["model_used"],
+        )
         return True
     except Exception as exc:
         logger.warning("background Laya classification failed (%s)", type(exc).__name__)

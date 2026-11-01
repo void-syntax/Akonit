@@ -12,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.webhook_url import validate_public_https_url
 from app.models import NotificationDelivery, Signal, UserProfile
-from app.models.enums import DeliveryStatus, NotificationChannel, SignalStatus
+from app.models.enums import DeliveryStatus, NotificationChannel
 
 logger = get_logger(__name__)
 
@@ -118,6 +119,8 @@ async def dispatch_webhook_notification(
         delivery.error = f"Webhook URL not configured for channel {delivery.channel}"
         return
 
+    webhook_url = await validate_public_https_url(webhook_url)
+
     cards = format_webhook_card(signal, delivery.payload.get("radar") if delivery.payload else None)
 
     if delivery.channel == NotificationChannel.DISCORD:
@@ -127,10 +130,15 @@ async def dispatch_webhook_notification(
     else:
         payload = cards["generic"]
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(webhook_url, json=payload)
-        if response.status_code >= 400:
-            raise RuntimeError(f"Webhook dispatch failed with status {response.status_code}: {response.text[:200]}")
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+            response = await client.post(webhook_url, json=payload)
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            f"Webhook request failed ({type(exc).__name__})"
+        ) from None
+    if not response.is_success:
+        raise RuntimeError(f"Webhook dispatch failed with status {response.status_code}")
         
     delivery.status = DeliveryStatus.SENT
-    logger.info("Successfully dispatched webhook (%s) to %s", delivery.channel, webhook_url[:30])
+    logger.info("Successfully dispatched webhook (%s)", delivery.channel)

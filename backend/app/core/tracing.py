@@ -11,6 +11,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -21,8 +22,9 @@ def setup_tracing(app: FastAPI | None = None, engine=None) -> TracerProvider:
     resource = Resource.create({"service.name": "signal-radar-backend"})
     provider = TracerProvider(resource=resource)
     
-    # Avoid console span exporter logging errors when running under pytest or closed streams
-    if "pytest" not in sys.modules:
+    # Exporting every SQL span to the console is noisy and costly for a local
+    # desktop install. Enable it only when explicitly diagnosing a problem.
+    if settings.otel_console_exporter_enabled and "pytest" not in sys.modules:
         provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
     
     trace.set_tracer_provider(provider)

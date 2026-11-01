@@ -48,6 +48,7 @@ def classify(
     window_minutes: int = 15,
     ai_priority_score: float = 0.0,
     sources: Sequence[str] = (),
+    text_content: str = "",
 ) -> tuple[SignalStatus, float]:
     """Return (status, strength) for the current observation.
 
@@ -65,6 +66,7 @@ def classify(
         window_minutes=window_minutes,
         ai_priority_score=ai_priority_score,
         sources=sources,
+        text_content=text_content,
     )
 
     # Some sources (notably sampled live posts) provide no numeric activity

@@ -204,6 +204,9 @@ async def configure_telegram_bot(payload: dict, user: CurrentUser, session: Sess
         session.add(profile)
     profile.telegram_bot_token_encrypted = encrypted
     await session.commit()
+    from app.bot.telegram_bot import notify_bot_config_changed
+
+    notify_bot_config_changed()
     return {"ok": True, "bot_username": bot.get("username")}
 
 
@@ -214,6 +217,9 @@ async def remove_telegram_bot(user: CurrentUser, session: SessionDep):
         profile.telegram_bot_token_encrypted = None
         profile.telegram_alerts_enabled = False
         await session.commit()
+        from app.bot.telegram_bot import notify_bot_config_changed
+
+        notify_bot_config_changed()
     return {"ok": True}
 
 
@@ -245,27 +251,23 @@ async def test_telegram(user: CurrentUser):
 @router.post("/telegram/find-chat")
 async def find_telegram_chat(user: CurrentUser):
     profile = user.profile
-    if not profile:
+    if profile and profile.telegram_chat_id:
+        return {"chat_id": profile.telegram_chat_id, "name": None}
+    if not profile or not profile.telegram_bot_token_encrypted:
         raise HTTPException(status_code=400, detail="Connect your Telegram bot first")
     try:
-        token = (
-            decrypt_secret(profile.telegram_bot_token_encrypted)
-            if profile.telegram_bot_token_encrypted
-            else settings.telegram_bot_token
-        )
-        if not token:
-            raise ValueError("No Telegram bot is configured")
-        async with TelegramClient(token=token) as telegram:
-            result = await telegram.find_latest_private_chat()
-    except Exception as exc:
+        token = decrypt_secret(profile.telegram_bot_token_encrypted)
+    except RuntimeError as exc:
         raise HTTPException(
-            status_code=400,
-            detail="Could not read Telegram messages; check the bot settings",
+            status_code=503, detail="Telegram bot token storage is unavailable"
         ) from exc
+    from app.bot.telegram_bot import find_recent_private_chat
+
+    result = find_recent_private_chat(token)
     if result is None:
         raise HTTPException(
             status_code=404,
-            detail="No message found. Open your bot in Telegram and press Start first.",
+            detail="Open your saved bot in Telegram, press Start, then choose Find my chat again.",
         )
     chat_id, name = result
     return {"chat_id": chat_id, "name": name}

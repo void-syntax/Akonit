@@ -120,9 +120,16 @@ def _get_router():
             pass
         from laya import Router  # type: ignore[import-untyped]
         logger.info("Loading Laya AI router...")
-        # Keep only one checkpoint resident; Laya stays lazily loaded on first
-        # classification so importing the API never downloads/loads a model.
-        router = Router(preload=False, max_loaded=1, device="cpu")
+        # Keep one multilingual checkpoint resident. The default router may
+        # evict/rebuild English and multilingual checkpoints on every language
+        # switch; a single multilingual model avoids multi-second reloads while
+        # keeping memory bounded on modest PCs.
+        router = Router(
+            preload=False,
+            max_loaded=1,
+            device="cpu",
+            default="multilingual",
+        )
         logger.info("Laya AI router ready")
         return router
     except ImportError:

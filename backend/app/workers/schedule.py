@@ -175,7 +175,7 @@ async def _cycle_laya() -> None:
             async with SessionLocal() as session:
                 classified = await run_laya_task(session)
             if classified:
-                logger.info("Laya classified one signal")
+                logger.info("background classifier completed one signal")
         except Exception as exc:
             logger.warning("Laya background cycle failed (%s)", type(exc).__name__)
 
@@ -256,7 +256,7 @@ async def main() -> None:
         scheduler.add_job(
             _cycle_laya,
             "interval",
-            seconds=60,
+            seconds=max(settings.ai_classification_interval_seconds, 15),
             id="laya",
             max_instances=1,
             coalesce=True,

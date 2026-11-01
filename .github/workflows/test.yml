@@ -41,7 +41,6 @@ jobs:
       - name: Set test environment
         run: |
           echo "DATABASE_URL=postgresql+asyncpg://signal:signal@localhost:5432/signal_radar_test" >> $GITHUB_ENV
-          echo "SECRET_KEY=ci-test-secret-key-not-used-in-production" >> $GITHUB_ENV
           echo "ENABLE_SCHEDULER=false" >> $GITHUB_ENV
 
       - name: Check schema matches models

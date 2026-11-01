@@ -14,7 +14,7 @@ Commands:
 from __future__ import annotations
 
 import asyncio
-import logging
+import hashlib
 from datetime import UTC, datetime, timedelta
 
 from app.core.config import settings
@@ -23,6 +23,60 @@ from app.core.logging import get_logger
 logger = get_logger("bot.telegram")
 
 _muted_until: datetime | None = None
+_configuration_changed = asyncio.Event()
+_recent_private_chats: dict[str, tuple[datetime, str, str | None]] = {}
+
+
+def notify_bot_config_changed() -> None:
+    """Wake the bot manager after a token is added, replaced, or removed."""
+    _configuration_changed.set()
+
+
+def _select_token(encrypted_tokens: list[str | None], fallback: str | None) -> str | None:
+    """Select the configured local bot token without logging credential data."""
+    from app.core.secrets import decrypt_secret
+
+    for encrypted in encrypted_tokens:
+        if encrypted:
+            try:
+                return decrypt_secret(encrypted)
+            except RuntimeError:
+                logger.exception("Could not decrypt a saved Telegram bot token")
+    return fallback
+
+
+async def _configured_token() -> str | None:
+    """Read the saved profile token, falling back to the environment setting."""
+    from sqlalchemy import select
+    from app.db.session import SessionLocal
+    from app.models.user import UserProfile
+
+    async with SessionLocal() as session:
+        encrypted = (await session.execute(
+            select(UserProfile.telegram_bot_token_encrypted).where(
+                UserProfile.telegram_bot_token_encrypted.isnot(None)
+            ).order_by(UserProfile.created_at.asc())
+        )).scalars().all()
+    return _select_token(encrypted, settings.telegram_bot_token)
+
+
+def remember_private_chat(token: str, chat_id: int, name: str | None) -> None:
+    """Remember a recent /start for the Settings flow; never link it silently."""
+    token_key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    _recent_private_chats[token_key] = (datetime.now(UTC), str(chat_id), name)
+
+
+def find_recent_private_chat(token: str) -> tuple[str, str | None] | None:
+    """Return a recent /start chat without competing with the active poller."""
+    token_key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    recent = _recent_private_chats.get(token_key)
+    if recent is None:
+        return None
+    seen_at, chat_id, name = recent
+    if datetime.now(UTC) - seen_at > timedelta(minutes=10):
+        _recent_private_chats.pop(token_key, None)
+        return None
+    return chat_id, name
 
 
 def format_telegram_bulletin(signal, radar_name: str | None = None) -> str:
@@ -39,12 +93,8 @@ def format_telegram_bulletin(signal, radar_name: str | None = None) -> str:
     )
 
 
-async def _background_alert_dispatcher() -> None:
+async def _background_alert_dispatcher(token: str) -> None:
     """Background loop monitoring for critical/breakout signals with high alpha score and pushing bulletins to configured user chat IDs."""
-    token = settings.telegram_bot_token
-    if not token:
-        return
-
     notified_signal_ids: set[str] = set()
     await asyncio.sleep(10)
 
@@ -92,14 +142,12 @@ async def _background_alert_dispatcher() -> None:
                                 continue
                             if s.strength >= 60 or s.ai_priority == "critical":
                                 bulletin = format_telegram_bulletin(s)
-                                sent_any = False
                                 for profile in profiles:
                                     chat_id = profile.telegram_chat_id
                                     if not chat_id or chat_id.strip() in ("", "@akonit_analitik_bot"):
                                         continue
                                     try:
                                         await client.send(chat_id, bulletin)
-                                        sent_any = True
                                         logger.info("Pushed automated background intelligence bulletin for signal %s to chat_id %s", s.id, chat_id)
                                     except Exception as ex:
                                         logger.warning("Failed to push automated telegram bulletin for %s to %s: %r", s.id, chat_id, ex)
@@ -121,13 +169,8 @@ def is_muted() -> bool:
     return True
 
 
-async def start_bot() -> None:
-    """Start the Telegram bot if token is configured."""
-    token = settings.telegram_bot_token
-    if not token:
-        logger.info("TELEGRAM_BOT_TOKEN not set — interactive bot disabled")
-        return
-
+async def _run_bot(token: str) -> None:
+    """Run the polling application for one configured token."""
     try:
         from telegram import Update
         from telegram.ext import Application, CommandHandler, ContextTypes
@@ -140,6 +183,14 @@ async def start_bot() -> None:
     async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
+        chat = update.effective_chat
+        if chat and chat.type == "private":
+            remember_private_chat(token, chat.id, chat.first_name or chat.username)
+        link_message = (
+            "\n\nOpen Settings and choose Find my chat to link alerts."
+            if chat and chat.type == "private"
+            else "\n\nOpen the bot in a private chat and press Start to link alerts."
+        )
         await update.message.reply_text(
             "🎯 *Signal Radar Bot (@akonit_analitik_bot)*\n\n"
             "Your personal trend intelligence station is running 24/7.\n\n"
@@ -154,7 +205,7 @@ async def start_bot() -> None:
             "/status — System status\n"
             "/radars — Your radars\n"
             "/mute 2 — Mute for 2 hours\n"
-            "/help — This message",
+            "/help — This message" + link_message,
             parse_mode="Markdown",
         )
 
@@ -203,17 +254,19 @@ async def start_bot() -> None:
             await update.message.reply_text(f"_{title}: none found right now._", parse_mode="Markdown")
             return
 
-        lines = [f"*{title}*\n"]
+        lines = [title, ""]
         for s in signals[:5]:
             growth_str = f"+{s.growth:.0f}%" if s.growth > 0 else f"{s.growth:.0f}%"
             flag = s.flag or "🌐"
             lines.append(
-                f"{flag} *{s.title[:60]}*\n"
+                f"{flag} {s.title[:60]}\n"
                 f"   📈 {growth_str} · STR {s.strength:.0f} · {s.source_id}\n"
                 f"   🔗 {settings.frontend_url}/signals/{s.id}\n"
             )
 
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True)
+        # Titles and source IDs originate from public feeds. Plain text avoids
+        # malformed Markdown breaking the entire Telegram reply.
+        await update.message.reply_text("\n".join(lines), disable_web_page_preview=True)
 
     async def cmd_top(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         from app.db.session import SessionLocal
@@ -421,11 +474,80 @@ async def start_bot() -> None:
     app.add_handler(CommandHandler("summary", cmd_summary))
     app.add_handler(CommandHandler("search", cmd_search))
 
-    logger.info("Starting automated background alert dispatcher task")
-    asyncio.create_task(_background_alert_dispatcher())
+    dispatcher_task: asyncio.Task | None = None
+    initialized = False
+    started = False
+    polling = False
+    try:
+        await app.initialize()
+        initialized = True
+        await app.start()
+        started = True
+        await app.updater.start_polling(drop_pending_updates=False)
+        polling = True
+        dispatcher_task = asyncio.create_task(
+            _background_alert_dispatcher(token), name="telegram-alert-dispatcher"
+        )
+        logger.info("Telegram bot is running successfully")
+        await asyncio.Event().wait()
+    finally:
+        if dispatcher_task is not None:
+            dispatcher_task.cancel()
+            try:
+                await dispatcher_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception("Telegram alert dispatcher failed during shutdown")
+        if polling and app.updater is not None:
+            await app.updater.stop()
+        if started:
+            await app.stop()
+        if initialized:
+            await app.shutdown()
 
-    logger.info("Telegram bot starting in polling mode (@akonit_analitik_bot)")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(drop_pending_updates=True)
-    logger.info("Telegram bot is running successfully")
+
+async def start_bot() -> None:
+    """Keep the bot available and apply profile token changes without API restart."""
+    while True:
+        _configuration_changed.clear()
+        try:
+            token = await _configured_token()
+            if not token:
+                logger.info("Telegram bot waiting for a token in Profile settings")
+                try:
+                    await asyncio.wait_for(_configuration_changed.wait(), timeout=30.0)
+                except TimeoutError:
+                    pass
+            else:
+                running = asyncio.create_task(_run_bot(token), name="telegram-polling")
+                changed = asyncio.create_task(_configuration_changed.wait())
+                done, pending = await asyncio.wait(
+                    {running, changed}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if changed in done:
+                    running.cancel()
+                    try:
+                        await running
+                    except asyncio.CancelledError:
+                        pass
+                    logger.info("Telegram token configuration changed; restarting bot")
+                else:
+                    changed.cancel()
+                    try:
+                        await changed
+                    except asyncio.CancelledError:
+                        pass
+                    # Propagate failures to the retry handler below.
+                    await running
+                    logger.warning("Telegram polling stopped; retrying")
+                for task in pending:
+                    task.cancel()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Telegram bot stopped unexpectedly; retrying")
+            try:
+                await asyncio.wait_for(_configuration_changed.wait(), timeout=10.0)
+            except TimeoutError:
+                pass

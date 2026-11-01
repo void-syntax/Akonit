@@ -85,7 +85,7 @@ export function StatusBar() {
         </span>
       )}
       <div className="statusbar-version">
-        INTELLIGENCE TERMINAL v2.4 // LAYA AI ENGINE
+        INTELLIGENCE TERMINAL v2.4 // LOCAL SIGNAL TRIAGE
       </div>
       {timeStr && <time className="statusbar-time" dateTime={new Date().toISOString()}>{timeStr} local</time>}
     </footer>

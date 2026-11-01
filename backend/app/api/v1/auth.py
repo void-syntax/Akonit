@@ -3,9 +3,9 @@
 There is no authentication in the local build. The app runs on the operator's own
 machine and resolves a single local account (see `app.api.deps`), so these
 routes only answer "who am I" and "what are my settings". Registration, login,
-passwords and OAuth were removed along with the hosted deployment they existed
-for; `auth_disabled=false` restores token auth through `app.core.security` if
-this ever runs somewhere shared.
+passwords and OAuth are not implemented. Configuration rejects attempts to turn
+off the local single-user mode so a missing login flow cannot be mistaken for
+working hosted authentication.
 """
 
 from __future__ import annotations
