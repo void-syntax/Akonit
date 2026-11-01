@@ -38,7 +38,7 @@ async def test_metrics_endpoint(db_session: AsyncSession):
 
     app.dependency_overrides[get_session] = override_get_session
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as ac:
         response = await ac.get("/metrics")
         assert response.status_code == 200
         body = response.text
@@ -60,7 +60,7 @@ async def test_admin_stats_endpoint(db_session: AsyncSession):
 
     app.dependency_overrides[get_session] = override_get_session
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as ac:
         response = await ac.get("/api/v1/admin/stats")
         assert response.status_code == 200
         data = response.json()

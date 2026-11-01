@@ -6,7 +6,7 @@ Condition-driven monitoring of the open internet. You define conditions, the
 system collects from many free public sources, detects **early signals** (not
 news), and notifies you on your phone.
 
-**Free public sources by default. No LLM or proxies. Optional official APIs can improve coverage; paid reads are capped and off until you add your own credentials.**
+**Free public sources by default. Background signal triage uses a lightweight local scorer and never blocks collection. Laya is optional because it adds a local ML runtime and downloads a model on first use. Signal briefings are generated only when requested and show their evidence gaps. Optional official APIs can improve coverage; paid reads are capped and off until you add your own credentials.**
 
 ---
 
@@ -28,6 +28,22 @@ You need one of these two setups:
 | **Docker Desktop** — optional; copy `.env.example` to `.env`, then use `docker compose up --build` to run the container stack. |
 
 Nothing else. No account, no API key, no signup, no cloud service.
+
+### Optional Laya classifier
+
+The default install stays light and uses a deterministic fallback for AI triage.
+To enable the local Laya classifier on a computer with enough free memory, run
+from `backend/`:
+
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements-laya.txt
+```
+
+Laya downloads its multilingual checkpoint from Hugging Face on the first
+eligible signal. The application limits inference to one worker and keeps one
+checkpoint resident. Skip this extra on low-memory machines; the collector and
+signal scoring work without it. See the [Laya package instructions](https://pypi.org/project/laya/)
+for model and hardware details.
 
 Not sure what you have? Run **`doctor.bat`** — it lists exactly what is missing
 and whether the app is already running.
@@ -155,7 +171,9 @@ Signal Radar is distributed under the [MIT License](LICENSE).
 `AUTH_DISABLED` defaults to `true`, so the API creates one local account on the
 first request and uses it for everything. Radars, saved signals and
 notifications work immediately, with no token, cookie or OAuth anywhere in the
-flow. Set `AUTH_DISABLED=false` only if you put this behind a shared host.
+flow. The API is intended for local use only. Shared-host authentication and
+account provisioning are not implemented; setting `AUTH_DISABLED=false` makes
+startup fail rather than exposing a misleading half-authenticated mode.
 
 ### The engine searches what you asked for
 
@@ -336,10 +354,10 @@ starts for you. It schedules four jobs:
 
 | Job | Default interval | What it does |
 |-----|------------------|--------------|
-| `collect` | `COLLECT_INTERVAL_SECONDS` (900) | fetch → normalize → dedup → detect |
+| `collect` | `COLLECT_INTERVAL_SECONDS` (60) | fetch → normalize → dedup → detect |
 | `match` | 5 min | evaluate signals against every radar |
 | `notify` | 1 min | queue and deliver due notifications |
-| `metrics` | `SNAPSHOT_INTERVAL_SECONDS` (900) | recompute growth/strength from snapshots |
+| `metrics` | `SNAPSHOT_INTERVAL_SECONDS` (300) | recompute growth/strength from snapshots |
 
 Graceful shutdown on SIGTERM/SIGINT, `max_instances=1` so a slow tick is never
 overlapped, and `coalesce=True` so missed ticks do not pile up.
@@ -377,28 +395,10 @@ alembic revision --autogenerate -m "describe change"
 
 ## Continuous integration
 
-Two workflows run from this repository.
-
-| Workflow | Trigger | What it does |
-|----------|---------|--------------|
-| `test.yml` | push, pull request | backend tests against Postgres, `alembic check`, `tsc`, `next build` |
-| `collect.yml` | cron every 20 min | migrations, seed, one collect cycle, radar matching, notifications |
-
-To let `collect.yml` run, add these repository secrets under
-**Settings → Secrets and variables → Actions**:
-
-| Secret | Required | Purpose |
-|--------|----------|---------|
-| `DATABASE_URL` | yes | `postgresql+asyncpg://USER:PASSWORD@HOST:5432/DB` |
-| `SECRET_KEY` | yes | JWT signing |
-| `GITHUB_TOKEN` | no | raises the GitHub limit 60 → 5000 req/h |
-| `HF_TOKEN` | no | private Hub models |
-| `TELEGRAM_BOT_TOKEN` | no | Optional shared bot for legacy deployments; users can connect their own bot in Settings |
-| `TELEGRAM_TOKEN_ENCRYPTION_KEY` | required for per-user Telegram bots | Fernet key used to encrypt user bot tokens in the database. `start.bat` creates a local key automatically. |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | no | web push |
-
-`collect.yml` can also be triggered by hand (**Run workflow**) with a
-`full` toggle for collect-only runs.
+The `test.yml` workflow runs on pushes, pull requests, and manual dispatch. It
+checks the backend schema and tests, then type-checks and builds the frontend.
+It uses its own temporary PostgreSQL service and does not require repository
+secrets.
 
 ### Using Supabase as the database
 
@@ -520,9 +520,9 @@ backend/
     workers/       24/7 scheduler + tasks
     api/v1/        auth, taxonomy, radars, signals, stream, system
   tools/           verification scripts
-  tests/           27 unit tests
+  tests/           backend unit and integration tests
 frontend/
-  src/app/         feed, login, radars, saved, profile, settings, signal detail
+  src/app/         feed, login explainer, radars, saved, profile, settings, signal detail
   src/components/  SignalCard, ConditionBuilder, AppShell
   src/lib/         api client, SSE hook, formatters
 ```
@@ -531,7 +531,9 @@ frontend/
 
 ## Non-goals (by design)
 
-- No LLM / no AI API anywhere — detection is deterministic.
+- No external LLM or AI API is used. The default background triage is deterministic
+  and low-resource. Laya requires a separate install; its absence does not affect
+  collection. Signal briefings are transparent templates, not generated predictions.
 - No maps or geographic visualisation — countries are badges only.
 - No scraping-service dependency or proxy requirement. Optional official APIs
   may cost money; the X reads budget is capped locally.

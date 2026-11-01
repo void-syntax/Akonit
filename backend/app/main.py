@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import contextlib
+import asyncio
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import JSONResponse, ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.v1 import auth, notifications, radars, signals, sse, stream, system, taxonomy, telemetry
 from app.core.cache import close_cache
+from app.core.compression import setup_compression
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.tracing import setup_tracing
+from app.db.session import engine as db_engine
 from app.db.redis_bus import close_redis, get_redis
+from prometheus_fastapi_instrumentator import Instrumentator
 
 logger = get_logger(__name__)
 
@@ -42,7 +48,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if added:
             logger.info("schema migrated: %s", ", ".join(added))
     else:
-        import asyncio
         from pathlib import Path
 
         from alembic import command
@@ -86,11 +91,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Start optional integrations only when enabled. In particular, avoid
     # loading an AI model on a low-memory local machine by default.
-    import asyncio
     from app.bot.telegram_bot import start_bot
 
-    asyncio.create_task(start_bot())
-    yield
+    bot_task = asyncio.create_task(start_bot(), name="telegram-bot")
+
+    def log_bot_failure(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error(
+                "Telegram integration stopped unexpectedly",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+    bot_task.add_done_callback(log_bot_failure)
+    try:
+        yield
+    finally:
+        bot_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            try:
+                await bot_task
+            except Exception:
+                # The done callback logs integration startup/runtime failures.
+                pass
     await close_redis()
     await close_cache()
     await db_session.engine.dispose()
@@ -110,15 +135,30 @@ app = FastAPI(
     default_response_class=ORJSONResponse,
 )
 
-from app.core.compression import setup_compression
+# The desktop build has no login flow. Restrict browser-facing requests to the
+# loopback names used by the local UI and test clients; this also blocks common
+# DNS-rebinding requests that arrive with an attacker-controlled Host header.
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1", "[::1]"],
+)
+
+
+@app.middleware("http")
+async def reject_cross_origin_mutations(request, call_next):
+    """Block browser form/fetch writes originating from untrusted websites."""
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin")
+        if origin and origin not in settings.cors_origin_list:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Cross-origin changes are not allowed"},
+            )
+    return await call_next(request)
+
 setup_compression(app, minimum_size=500)
 
-from app.core.tracing import setup_tracing
-from app.db.session import engine as db_engine
-
 setup_tracing(app=app, engine=db_engine)
-
-from prometheus_fastapi_instrumentator import Instrumentator
 
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=True)
 

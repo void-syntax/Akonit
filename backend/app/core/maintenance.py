@@ -9,6 +9,7 @@ Performs periodic maintenance on SQLite databases:
 from __future__ import annotations
 
 import time
+from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.core.logging import get_logger
@@ -22,24 +23,36 @@ async def run_sqlite_maintenance(session: AsyncSession) -> dict[str, Any]:
     stats: dict[str, Any] = {"status": "success", "operations": []}
 
     try:
-        # 1. WAL Checkpoint
-        await session.execute(text("PRAGMA wal_checkpoint(TRUNCATE);"))
-        stats["operations"].append("wal_checkpoint_truncate")
+        # 1. WAL Checkpoint (safe try for in-memory or custom DB drivers)
+        try:
+            await session.execute(text("PRAGMA wal_checkpoint(TRUNCATE);"))
+            stats["operations"].append("wal_checkpoint_truncate")
+        except Exception as pragma_exc:
+            logger.debug("WAL checkpoint skipped or unsupported: %s", pragma_exc)
 
         # 2. Page count and freelist info
-        page_count_res = await session.execute(text("PRAGMA page_count;"))
-        page_count = page_count_res.scalar() or 0
+        try:
+            page_count_res = await session.execute(text("PRAGMA page_count;"))
+            page_count = page_count_res.scalar() or 0
+        except Exception:
+            page_count = 0
         
-        freelist_res = await session.execute(text("PRAGMA freelist_count;"))
-        freelist_count = freelist_res.scalar() or 0
+        try:
+            freelist_res = await session.execute(text("PRAGMA freelist_count;"))
+            freelist_count = freelist_res.scalar() or 0
+        except Exception:
+            freelist_count = 0
 
         stats["page_count"] = page_count
         stats["freelist_count"] = freelist_count
 
         # 3. If freelist count is high, trigger incremental vacuum
         if freelist_count > 1000:
-            await session.execute(text("PRAGMA incremental_vacuum(500);"))
-            stats["operations"].append("incremental_vacuum_500")
+            try:
+                await session.execute(text("PRAGMA incremental_vacuum(500);"))
+                stats["operations"].append("incremental_vacuum_500")
+            except Exception as vac_exc:
+                logger.debug("Incremental vacuum skipped or unsupported: %s", vac_exc)
 
         elapsed = round(time.monotonic() - start_time, 3)
         stats["duration_seconds"] = elapsed

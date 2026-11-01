@@ -1,3 +1,0 @@
-checked 97 files
-
-SYNTAX OK

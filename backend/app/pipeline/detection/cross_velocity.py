@@ -79,6 +79,11 @@ class BullshitScrubber:
             
         text_lower = text.lower()
         found_buzzwords = [bw for bw in BUZZWORDS if bw in text_lower]
+        tokens = re.findall(r"#?[\w'-]+", text_lower)
+        hashtag_only = bool(tokens) and all(
+            token.startswith("#") or token in {"trending", "viral", "fyp"}
+            for token in tokens
+        )
         
         has_metrics = False
         for pattern in QUANTITATIVE_PATTERNS:
@@ -87,7 +92,12 @@ class BullshitScrubber:
                 break
                 
         # Calculate substance factor
-        if found_buzzwords and not has_metrics:
+        if hashtag_only:
+            # Trend tags without a subject are useful as raw mentions, but
+            # they are weak evidence for a high-value story.
+            substance_factor = 0.35
+            penalty_applied = True
+        elif found_buzzwords and not has_metrics:
             # Severe penalty for pure fluff
             substance_factor = 0.4
             penalty_applied = True

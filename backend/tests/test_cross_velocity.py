@@ -36,6 +36,13 @@ class TestBullshitScrubber:
         assert result["substance_factor"] == 1.0
         assert len(result["buzzwords"]) == 0
 
+    def test_hashtag_only_trends_are_demoted_without_rejecting_story_titles(self):
+        tags = BullshitScrubber.evaluate("#LFC #UCL #YNWA")
+        story = BullshitScrubber.evaluate("Central bank cuts interest rates")
+        assert tags["penalty_applied"] is True
+        assert tags["substance_factor"] == 0.35
+        assert story["substance_factor"] == 1.0
+
 
 class TestCrossCorroborationMatrix:
     def test_collector_family_mapping(self):

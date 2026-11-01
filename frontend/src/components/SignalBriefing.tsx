@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { API_URL, ApiError } from "@/lib/api";
+import React, { useState } from "react";
+import { API_URL } from "@/lib/api";
 import type { IntelligenceBriefing } from "@/lib/types";
 
 interface SignalBriefingProps {
@@ -11,42 +11,8 @@ interface SignalBriefingProps {
 
 export function SignalBriefing({ signalId, isCriticalOrUnicorn }: SignalBriefingProps) {
   const [briefing, setBriefing] = useState<IntelligenceBriefing | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    async function fetchBriefing() {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch(`${API_URL}/api/v1/signals/${signalId}/briefing`);
-        if (!res.ok) {
-          if (res.status === 404) {
-            setBriefing(null);
-            return;
-          }
-          throw new Error(`Не удалось загрузить сводку (${res.status})`);
-        }
-        const data = await res.json();
-        if (mounted) {
-          setBriefing(data);
-        }
-      } catch (err) {
-        if (mounted) {
-          setError(err instanceof Error ? err.message : "Не удалось загрузить сводку");
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    }
-    fetchBriefing();
-    return () => {
-      mounted = false;
-    };
-  }, [signalId]);
 
   if (loading) {
     return (
@@ -71,21 +37,27 @@ export function SignalBriefing({ signalId, isCriticalOrUnicorn }: SignalBriefing
           onClick={async () => {
             try {
               setLoading(true);
+              setError(null);
               const res = await fetch(`${API_URL}/api/v1/signals/${signalId}/briefing`);
               if (res.ok) {
                 const data = await res.json();
                 setBriefing(data);
+              } else {
+                const payload = await res.json().catch(() => null);
+                setError(payload?.detail ?? `Не удалось создать сводку (${res.status})`);
               }
-            } catch (e) {
-              setError("Не удалось создать сводку");
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Не удалось создать сводку");
             } finally {
               setLoading(false);
             }
           }}
+          disabled={loading}
           className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-xl font-mono text-xs border border-cyan-500/40 transition-all shadow-lg shadow-cyan-500/10 cursor-pointer"
         >
           Создать сводку
         </button>
+        {error && <p role="alert" className="mt-3 text-xs text-rose-300">{error}</p>}
       </div>
     );
   }
